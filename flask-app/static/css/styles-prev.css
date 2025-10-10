@@ -6,48 +6,7 @@ body {
     color: #111827;
 }
 
-/* Dark mode styles */
-@media (prefers-color-scheme: dark) {
-    body {
-        background-color: #1f2937;
-        color: #f9fafb;
-    }
-    
-    h1, h2, h3, h4 {
-        color: #f3f4f6;
-    }
-    
-    table {
-        background: #374151;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-    
-    thead {
-        background-color: #3730a3; /* Darker shade of indigo */
-    }
-    
-    tbody tr:nth-child(even) {
-        background-color: #4b5563;
-    }
-    
-    tbody tr:hover {
-        background-color: #4f46e5;
-    }
-    
-    th {
-        background-color: #3730a3;
-    }
-    
-    td {
-        color: #f9fafb;
-    }
-    
-    footer {
-        color: #d1d5db;
-    }
-}
-
-h1, h2, h3, h4 {
+h1,h2,h3,h4 {
     text-align: center;
     margin-bottom: 10px;
     color: #333;
@@ -59,7 +18,7 @@ table {
     width: 100%;
     max-width: 1300px;
     margin: 0 auto;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     background: #fff;
     border-radius: 8px;
     overflow: hidden;
@@ -82,7 +41,6 @@ tbody tr:nth-child(even) {
 tbody tr:hover {
     background-color: #e0e7ff;
 }
-
 th {
     position: sticky;
     top: 0;
@@ -95,7 +53,6 @@ td {
     color: #111827;
     padding: 8px 12px;
 }
-
 .td-center {
     text-align: center;
 }
@@ -132,8 +89,8 @@ td {
 .role-na { background-color: #9ca3af; }
 
 footer {
-    text-align: right;
-    font-size: 0.7em;
-    color: #888;
-    margin-top: 2em;
+     text-align:right; 
+     font-size:0.7em; 
+     color:#888;
+     margin-top:2em;
 }
