@@ -1,5 +1,6 @@
 from includes.maths import line_of_sight_distance
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 google_prefix='https://www.google.com/maps/place/'
 google_suffix=',12z/data=!4m4!3m3!8m2!3d52.2803!4d0.657!5m1!1e1'
@@ -57,7 +58,7 @@ def parse_feed(feed: str):
                     google_maps_ref(coords),
                     line_of_sight_distance(home,coords),
                     str(line.get('out_path_len')),
-                    datetime.fromtimestamp(line.get('last_advert')).strftime('%Y-%m-%d %H:%M:%S')
+                    datetime.fromtimestamp(line.get('last_advert'),tz=ZoneInfo('Europe/London')).strftime('%Y-%m-%d %H:%M:%S')
                     ])
     if not rows:
         return [], []
