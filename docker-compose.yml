@@ -1,0 +1,14 @@
+services:
+  meshtastic-node-list:
+    container_name: meshcore-node-list
+    build: 
+      context: ./flask-app
+    ports:
+      - "5050:5050"
+    environment:
+      - SECRET_KEY=this-key-is-secret-then
+      - node_data_file=/app/node_data/nodes.json
+    volumes:
+      - /home/james/meshcore-node-list/node_data:/app/node_data
+      # - ./flask-app/static:/app/static
+    restart: unless-stopped  # Add restart policy

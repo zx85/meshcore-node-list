@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meshcore nodes visible from G7RKW monitor 🔎</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+</head>
+<body>
+    <h1>Meshcore nodes</h1>
+    <h3>visible from G7RKW monitor 🔎</h3>
+    <h4><pre>(at {{ last_modified }})</pre></h4>
+    <table>
+        {% set center_indexes = [1,2,3,4] %}
+        <thead>
+            <tr>
+                {% for idx,header in enumerate(headers) %}
+                    {% set header_class = "" %}
+                    {% if idx in center_indexes %}
+                        {% set header_class = "td-center" %}
+                    {% endif %}
+                    <th class="{{ header_class }}">{{ header }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+
+            {% for row in data %}
+            <tr>
+                {% for idx, cell in enumerate(row) %}
+                    {% set cell_class = "" %}
+                    {% if idx in center_indexes %}
+                        {% set cell_class = "td-center" %}
+                    {% endif %}
+                    {% if headers[idx] == "Role" %}
+                        <td class="td-center">
+                        {% if cell == "CHAT" %}
+                            <span class="badge role-client">
+                        {% elif cell == "REPEATER" %}
+                            <span class="badge role-repeater">
+                        {% elif cell == "ROOM" %}
+                            <span class="badge role-router">
+                        {% elif cell == "NONE" %}
+                            <span class="badge role-na">
+                        {% else %}
+                            <span class="badge role-other">
+                        {% endif %}
+                        {{ cell }}</span></td>
+                    {% else %}
+                        <td class="{{ cell_class }}">{{ cell.replace('N/A', '<span class="badge role-na">') }}</td>
+                    {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+<footer>
+    <a href="https://github.com/zx85/meshcore-node-list" target="_blank">github.com/zx85/meshcore-node-list</a> - {{ version }}
+</footer>
+</html>
