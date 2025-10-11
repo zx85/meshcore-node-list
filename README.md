@@ -60,21 +60,26 @@ The container configuration in [docker-compose.yml](docker-compose.yml) maps the
 
 ## Running
 
-- Locally (simple): run the helper script to populate node data:
+### Bash script
+- Locally: run the helper script to populate node data:
   - [scripts/get_nodes.sh](scripts/get_nodes.sh)
+This should be set up as a cron job so that the node list is periodically picked up
+
+### Flask app
+- Locally (simple): Start the Flask app (you may need to assign environment variables to suit)
+  - [cd flask-app; uv sync && uv run python app.py](flask-app/app.py)
 
 - With Docker Compose:
-  - Build and run the service:  
-    docker-compose up --build
-  - The compose file uses the Docker image built from [flask-app/Dockerfile](flask-app/Dockerfile).
+  - Build and run the service: `docker-compose up --build`
+  - The compose file uses the Docker image built from [flask-app/Dockerfile](flask-app/Dockerfile)
 
 ## Development notes
 
 - Parsing and presentation:
-  - The JSON -> table transformation happens in [`includes.feed.parse_feed`](flask-app/includes/feed.py); distance formatting calls [`includes.maths.line_of_sight_distance`](flask-app/includes/maths.py).
+  - The JSON -> table transformation happens in [`includes.feed.parse_feed`](flask-app/includes/feed.py); distance formatting calls [`includes.maths.line_of_sight_distance`](flask-app/includes/maths.py)
 - Monitoring and MQTT:
-  - [`classes.mesh_monitor.MeshMonitor`](flask-app/classes/mesh_monitor.py) handles MQTT connections, new-node detection (persisting known node keys to `node_data/known_nodes.json`) and message polling/processing.
-- Tweak CSS in [flask-app/static/css/styles.css](flask-app/static/css/styles.css) or replace with [styles-new.css](flask-app/static/css/styles-new.css) if you prefer the alternative theme.
+  - [`classes.mesh_monitor.MeshMonitor`](flask-app/classes/mesh_monitor.py) handles MQTT connections, new-node detection (persisting known node keys to `node_data/known_nodes.json`) and message polling/processing
+- Tweak CSS in [flask-app/static/css/styles.css](flask-app/static/css/styles.css) or replace with [styles-new.css](flask-app/static/css/styles-new.css) if you prefer the alternative theme
 
 ## Files of interest
 
