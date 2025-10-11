@@ -210,3 +210,4 @@ marimo/_lsp/
 __marimo__/
 
 node_data/*
+mqtt_config.json

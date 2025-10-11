@@ -16,8 +16,7 @@ def line_of_sight_distance(home_row, target_row):
 
     lat2 = target_row[0]
     lon2 = target_row[1]
-    
-    print(f'{lat1},{lon1},{h1} and {lat2},{lon2}')
+
     # Use target height if present, otherwise assume home height
     h2 = target_row[2]
 

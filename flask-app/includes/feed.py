@@ -50,7 +50,6 @@ def parse_feed(feed: str):
                     'N/A',
                     '0',
                     'N/A'])
-        print(rows)
       else:
         coords=[line.get('adv_lat'),line.get('adv_lon'),0]
         rows.append([line.get('adv_name'),

@@ -8,5 +8,8 @@ dependencies = [
     "flask>=3.1.2",
     "meshcore>=2.1.9",
     "meshcore-cli>=1.1.25",
+    "paho-mqtt>=2.1.0",
+    "python-dotenv>=1.1.1",
     "tzdata>=2025.2",
+    "waitress>=3.0.2",
 ]
