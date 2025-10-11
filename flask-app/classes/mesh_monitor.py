@@ -4,13 +4,14 @@ import subprocess
 import paho.mqtt.client as mqtt
 import logging
 import os
-import re 
+import re
 from pathlib import Path
 from typing import Dict, Set, Any
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ def parse_mesh_message_advanced(raw_message):
         'clean': clean_message
     }
 
+
 class MeshMonitor:
     def __init__(self, mqtt_config: Dict[str, Any], node_data_file: str, message_data_file: str):
         self.mqtt_config = mqtt_config
@@ -79,6 +81,13 @@ class MeshMonitor:
         # Serial device configuration
         self.serial_device = os.environ.get('MESH_SERIAL_DEVICE', '/dev/ttyACM0')
         self.serial_enabled = os.environ.get('MESH_SERIAL_ENABLED', 'true').lower() == 'true'
+        
+        # MQTT connection tracking
+        self.mqtt_connected = False
+        self.last_mqtt_connection_check = 0
+        self.published_messages = 0
+        self.failed_messages = 0
+        self.last_publish_status = None
         
         # Ensure directory exists
         self.node_data_file.parent.mkdir(exist_ok=True)
@@ -98,6 +107,50 @@ class MeshMonitor:
         # Check serial device availability
         self.check_serial_device()
     
+    def on_connect(self, client, userdata, flags, rc):
+        """Callback for when the client receives a CONNACK response from the server."""
+        if rc == 0:
+            self.mqtt_connected = True
+            logger.info("MQTT connected successfully")
+        else:
+            self.mqtt_connected = False
+            connection_codes = {
+                1: "Connection refused - incorrect protocol version",
+                2: "Connection refused - invalid client identifier",
+                3: "Connection refused - server unavailable",
+                4: "Connection refused - bad username or password",
+                5: "Connection refused - not authorised"
+            }
+            error_msg = connection_codes.get(rc, f"Connection refused - unknown error code {rc}")
+            logger.error(f"MQTT connection failed: {error_msg}")
+    
+    def on_disconnect(self, client, userdata, rc):
+        """Callback for when the client disconnects from the broker."""
+        self.mqtt_connected = False
+        if rc != 0:
+            logger.warning(f"MQTT unexpected disconnection (code: {rc}) - will attempt to reconnect")
+        else:
+            logger.info("MQTT disconnected normally")
+    
+    def on_publish(self, client, userdata, mid):
+        """Callback when a message is published successfully."""
+        self.published_messages += 1
+        logger.debug(f"Message {mid} confirmed published to MQTT broker")
+        self.last_publish_status = "success"
+    
+    def on_log(self, client, userdata, level, buf):
+        """Callback for MQTT log messages (useful for debugging)."""
+        if level == mqtt.MQTT_LOG_DEBUG:
+            logger.debug(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_INFO:
+            logger.info(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_NOTICE:
+            logger.info(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_WARNING:
+            logger.warning(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_ERR:
+            logger.error(f"MQTT: {buf}")
+    
     def check_serial_device(self):
         """Check if serial device is available and log status"""
         if not self.serial_enabled:
@@ -114,11 +167,23 @@ class MeshMonitor:
         try:
             # Client for node announcements
             self.node_client = mqtt.Client()
+            
+            # Set up callbacks
+            self.node_client.on_connect = self.on_connect
+            self.node_client.on_disconnect = self.on_disconnect
+            self.node_client.on_publish = self.on_publish
+            self.node_client.on_log = self.on_log
+            
             if self.mqtt_config.get("username"):
                 self.node_client.username_pw_set(
                     self.mqtt_config["username"], 
                     self.mqtt_config.get("password", "")
                 )
+            
+            # Set last will testament (optional - sends message if we disconnect unexpectedly)
+            will_topic = self.mqtt_config.get("node_topic", "mesh/nodes/new") + "/status"
+            self.node_client.will_set(will_topic, payload="{\"status\": \"offline\", \"timestamp\": " + str(time.time()) + "}", qos=1, retain=True)
+            
             self.node_client.connect(
                 self.mqtt_config["host"], 
                 self.mqtt_config.get("port", 1883),
@@ -129,10 +194,88 @@ class MeshMonitor:
             # Client for messages (can use same connection)
             self.message_client = self.node_client
             
-            logger.info(f"MQTT client connected to {self.mqtt_config['host']}:{self.mqtt_config.get('port', 1883)}")
+            # Wait a moment for connection to establish
+            time.sleep(2)
+            
+            logger.info(f"MQTT client connecting to {self.mqtt_config['host']}:{self.mqtt_config.get('port', 1883)}")
             
         except Exception as e:
             logger.error(f"Failed to setup MQTT: {e}")
+            self.mqtt_connected = False
+    
+    def check_mqtt_connection(self):
+        """Check if MQTT connection is still healthy"""
+        now = time.time()
+        # Only check every 30 seconds to avoid log spam
+        if now - self.last_mqtt_connection_check < 30:
+            return self.mqtt_connected
+            
+        self.last_mqtt_connection_check = now
+        
+        if not self.mqtt_connected:
+            logger.warning("MQTT connection is not active - attempting to reconnect...")
+            try:
+                self.node_client.reconnect()
+                # Wait a moment for reconnection
+                time.sleep(2)
+            except Exception as e:
+                logger.error(f"MQTT reconnection failed: {e}")
+        
+        return self.mqtt_connected
+    
+    def publish_with_confirmation(self, topic, payload, qos=1, retain=False, timeout=5):
+        """
+        Publish a message with confirmation.
+        Returns True if published successfully, False otherwise.
+        """
+        try:
+            if not self.check_mqtt_connection():
+                logger.error("Cannot publish - MQTT connection is not available")
+                self.failed_messages += 1
+                self.last_publish_status = "failed_no_connection"
+                return False
+            
+            # Reset publish status
+            self.last_publish_status = None
+            
+            # Publish the message
+            msg_info = self.message_client.publish(topic, payload, qos=qos, retain=retain)
+            
+            # Wait for the callback to be called (for QoS 1/2, this waits for the PUBACK)
+            if msg_info.rc == mqtt.MQTT_ERR_SUCCESS:
+                if qos > 0:
+                    # For QoS 1/2, wait for the publish callback
+                    msg_info.wait_for_publish(timeout=timeout)
+                
+                if self.last_publish_status == "success" or qos == 0:
+                    logger.debug(f"Message published successfully to {topic}")
+                    return True
+                else:
+                    logger.warning(f"Message publish confirmation not received within {timeout}s")
+                    self.failed_messages += 1
+                    self.last_publish_status = "failed_timeout"
+                    return False
+            else:
+                logger.error(f"Failed to publish message (error code: {msg_info.rc})")
+                self.failed_messages += 1
+                self.last_publish_status = f"failed_error_{msg_info.rc}"
+                return False
+                
+        except Exception as e:
+            logger.error(f"Exception during MQTT publish: {e}")
+            self.failed_messages += 1
+            self.last_publish_status = "failed_exception"
+            return False
+    
+    def get_connection_stats(self):
+        """Get connection statistics"""
+        return {
+            "connected": self.mqtt_connected,
+            "published_messages": self.published_messages,
+            "failed_messages": self.failed_messages,
+            "last_publish_status": self.last_publish_status,
+            "success_rate": self.published_messages / max(1, self.published_messages + self.failed_messages) * 100
+        }
     
     def load_known_nodes(self) -> Set[str]:
         """Load previously known nodes from file"""
@@ -176,7 +319,7 @@ class MeshMonitor:
         return new_nodes
     
     def send_node_announcement(self, node: Dict):
-        """Send new node announcement via MQTT"""
+        """Send new node announcement via MQTT with confirmation"""
         try:
             topic = self.mqtt_config.get("node_topic", "mesh/nodes/new")
             message = json.dumps({
@@ -191,12 +334,16 @@ class MeshMonitor:
                 "timestamp": time.time()
             })
             
-            self.node_client.publish(topic, message, qos=1)
-            logger.info(f"Sent MQTT announcement for node: {node.get('adv_name')}")
+            success = self.publish_with_confirmation(topic, message, qos=1)
+            
+            if success:
+                logger.info(f"MQTT announcement confirmed for node: {node.get('adv_name')}")
+            else:
+                logger.error(f"Failed to send MQTT announcement for node: {node.get('adv_name')}")
             
         except Exception as e:
             logger.error(f"Error sending node announcement: {e}")
-    
+
     def poll_messages(self):
         """Poll for new messages using meshcli command"""
         # Check if serial is enabled and device exists
@@ -239,7 +386,7 @@ class MeshMonitor:
         return False
     
     def process_messages(self):
-        """Process and send messages via MQTT"""
+        """Process and send messages via MQTT with confirmation"""
         try:
             if not self.message_data_file.exists():
                 return
@@ -260,6 +407,9 @@ class MeshMonitor:
             
             # Send each line as a separate message
             topic = self.mqtt_config.get("message_topic", "mesh/messages")
+            messages_sent = 0
+            messages_failed = 0
+            
             for line in content.split('\n'):
                 line = line.strip()
                 if line and "Error:" not in line:
@@ -276,34 +426,60 @@ class MeshMonitor:
                         "source": "meshcli"
                     }
                     
-                    self.message_client.publish(
+                    success = self.publish_with_confirmation(
                         topic, 
                         json.dumps(message_data, ensure_ascii=False), 
                         qos=1
                     )
                     
-                    # Log the parsed message nicely
-                    if parsed_message['sender'] and parsed_message['status']:
-                        logger.info(f"Sent message - Sender: {parsed_message['sender']}, Status: {parsed_message['status']}, Message: {parsed_message['message']}")
-                    elif parsed_message['sender']:
-                        logger.info(f"Sent message - Sender: {parsed_message['sender']}, Message: {parsed_message['message']}")
+                    if success:
+                        messages_sent += 1
+                        # Log the parsed message nicely
+                        if parsed_message['sender'] and parsed_message['status']:
+                            logger.info(f"Message confirmed sent - Sender: {parsed_message['sender']}, Status: {parsed_message['status']}, Message: {parsed_message['message']}")
+                        elif parsed_message['sender']:
+                            logger.info(f"Message confirmed sent - Sender: {parsed_message['sender']}, Message: {parsed_message['message']}")
+                        else:
+                            logger.info(f"Message confirmed sent: {parsed_message['message']}")
                     else:
-                        logger.info(f"Sent message: {parsed_message['message']}")
+                        messages_failed += 1
+                        logger.error(f"Failed to send message via MQTT: {parsed_message['clean']}")
             
-            # Clear the file after processing
+            if messages_failed > 0:
+                logger.warning(f"Message batch completed: {messages_sent} sent, {messages_failed} failed")
+            else:
+                logger.info(f"Message batch completed: {messages_sent} sent successfully")
+        
+            # Clear the file after processing (only if all messages were processed or we don't care about failures)
             with open(self.message_data_file, 'w') as f:
                 f.write("")
-            
+        
         except Exception as e:
             logger.error(f"Error processing messages: {e}")
     
+    
     def monitor_loop(self, node_data_callback, check_interval: int = 30):
-        """Main monitoring loop"""
+        """Main monitoring loop with connection health checks"""
         logger.info(f"Starting mesh network monitor (check interval: {check_interval}s)...")
         logger.info(f"Serial device: {self.serial_device} (enabled: {self.serial_enabled})")
         
+        # Log connection stats periodically
+        last_stats_log = 0
+        stats_interval = 300  # 5 minutes
+        
         while True:
             try:
+                # Periodically log connection statistics
+                now = time.time()
+                if now - last_stats_log >= stats_interval:
+                    stats = self.get_connection_stats()
+                    logger.info(f"MQTT Connection Stats: {stats['success_rate']:.1f}% success rate "
+                               f"({stats['published_messages']} sent, {stats['failed_messages']} failed)")
+                    last_stats_log = now
+                
+                # Check MQTT connection health
+                self.check_mqtt_connection()
+                
                 # Get current node list from callback (which reads the file)
                 current_nodes = node_data_callback()
                 
@@ -333,9 +509,16 @@ class MeshMonitor:
                 logger.error(f"Error in monitoring loop: {e}")
                 time.sleep(check_interval)
     
+    
     def cleanup(self):
         """Cleanup resources"""
         if self.node_client:
+            # Send a disconnect message
+            if self.mqtt_connected:
+                will_topic = self.mqtt_config.get("node_topic", "mesh/nodes/new") + "/status"
+                self.node_client.publish(will_topic, payload="{\"status\": \"shutdown\", \"timestamp\": " + str(time.time()) + "}", qos=1, retain=True)
+                time.sleep(1)  # Give it a moment to send
+            
             self.node_client.loop_stop()
             self.node_client.disconnect()
             logger.info("MQTT client disconnected")

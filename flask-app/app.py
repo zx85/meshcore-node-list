@@ -7,6 +7,7 @@ import logging
 import json
 import re
 import threading
+import atexit
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -37,7 +38,7 @@ CACHE_TIMEOUT = 60  # seconds
 node_data_file = os.environ.get('NODE_DATA_FILE', '/app/node_data/nodes.json')
 message_data_file = os.environ.get('MESSAGE_DATA_FILE', '/app/node_data/node_messages.txt')
 
-# Mesh Monitor instance
+# Mesh Monitor instance - global so it persists across requests
 mesh_monitor = None
 monitor_thread = None
 monitor_started = False
@@ -62,7 +63,7 @@ def load_entries():
         with open(node_data_file, "r") as f:
             entries_cache = json.load(f)
         last_loaded = now
-        logger.debug(f'File reloaded at {time.strftime("%X")}')  # For debugging
+        print("File reloaded at", time.strftime("%X"))  # For debugging
     
     return entries_cache
 
@@ -118,12 +119,24 @@ def start_background_monitor():
         logger.error(f"Failed to start mesh monitor: {e}")
         monitor_started = True  # Don't keep trying if it failed
 
+def cleanup_mesh_monitor():
+    """Cleanup mesh monitor resources - only called on application shutdown"""
+    global mesh_monitor
+    if mesh_monitor:
+        logger.info("Shutting down mesh monitor...")
+        mesh_monitor.cleanup()
+        mesh_monitor = None
+        logger.info("Mesh monitor shutdown complete")
+
+# Register cleanup for application shutdown
+atexit.register(cleanup_mesh_monitor)
+
 @app.before_request
-def before_request():
-    """Start monitor on first request"""
+def initialize_monitor():
+    """Ensure monitor is running (will only start once)"""
     global monitor_started
     if not monitor_started:
-        logger.info("Starting mesh monitor on first request...")
+        logger.info("Initializing mesh monitor on first request...")
         start_background_monitor()
 
 @app.before_request
@@ -138,31 +151,32 @@ def serve_index():
                          version=APP_VERSION, last_modified=last_modified, 
                          enumerate=enumerate)
 
-@app.route('/health')
-def health_check():
-    """Health check endpoint"""
+@app.route('/status')
+def status_check():
+    """Status check endpoint with MQTT connection info"""
+    global mesh_monitor, monitor_started
+    
+    mqtt_stats = {}
+    if mesh_monitor:
+        mqtt_stats = mesh_monitor.get_connection_stats()
+    
     return {
         "status": "healthy",
         "version": APP_VERSION,
         "monitor_running": monitor_started,
+        "mqtt_connected": mqtt_stats.get("connected", False),
+        "mqtt_stats": mqtt_stats,
         "timestamp": datetime.now().isoformat()
     }
 
-def cleanup():
-    """Cleanup when app shuts down"""
-    global mesh_monitor
-    if mesh_monitor:
-        mesh_monitor.cleanup()
-        logger.info("Mesh monitor cleaned up")
-
-# Register cleanup function to run when the app context tears down
-@app.teardown_appcontext
-def teardown(exception=None):
-    cleanup()
-
-# Also register for when the process exits
-import atexit
-atexit.register(cleanup)
+@app.route('/health')
+def health_check():
+    """Simple health check endpoint"""
+    return {
+        "status": "healthy",
+        "version": APP_VERSION,
+        "timestamp": datetime.now().isoformat()
+    }
 
 if __name__ == '__main__':
     # Start monitor immediately when running directly
