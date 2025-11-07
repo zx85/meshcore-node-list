@@ -97,8 +97,9 @@ def start_background_monitor():
         "port": int(os.environ.get('MQTT_PORT', '1883')),
         "username": os.environ.get('MQTT_USERNAME'),
         "password": os.environ.get('MQTT_PASSWORD'),
-        "node_topic": os.environ.get('MQTT_NODE_TOPIC', 'mesh/nodes/new'),
-        "message_topic": os.environ.get('MQTT_MESSAGE_TOPIC', 'mesh/messages')
+        "node_topic": os.environ.get('MQTT_NODE_TOPIC', 'meshcore/nodes/new'),
+        "status_topic": os.environ.get('MQTT_STATUS_TOPIC', 'meshcore/status'),
+        "message_topic": os.environ.get('MQTT_MESSAGE_TOPIC', 'meshcore/messages')
     }
     
     try:

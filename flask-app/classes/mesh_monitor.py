@@ -81,6 +81,10 @@ class MeshMonitor:
         # Serial device configuration
         self.serial_device = os.environ.get('MESH_SERIAL_DEVICE', '/dev/ttyACM0')
         self.serial_enabled = os.environ.get('MESH_SERIAL_ENABLED', 'true').lower() == 'true'
+    # Topic for node announcements (base topic)
+        self.node_topic = self.mqtt_config.get("node_topic", "mesh/nodes/new")
+        # Separate topic for status messages (defaults to <node_topic>/status)
+        self.status_topic = self.mqtt_config.get("status_topic", "mesh/status")
         
         # MQTT connection tracking
         self.mqtt_connected = False
@@ -180,9 +184,13 @@ class MeshMonitor:
                     self.mqtt_config.get("password", "")
                 )
             
-            # Set last will testament (optional - sends message if we disconnect unexpectedly)
-            will_topic = self.mqtt_config.get("node_topic", "mesh/nodes/new") + "/status"
-            self.node_client.will_set(will_topic, payload="{\"status\": \"offline\", \"timestamp\": " + str(time.time()) + "}", qos=1, retain=True)
+            # Set Last Will and Testament (LWT) to indicate offline state using ISO 8601 timestamp
+            will_payload = json.dumps({
+                "status": "offline",
+                "timestamp": datetime.now().astimezone().isoformat()
+            }, ensure_ascii=False)
+            # Publish LWT to the dedicated status topic
+            self.node_client.will_set(self.status_topic, payload=will_payload, qos=1, retain=True)
             
             self.node_client.connect(
                 self.mqtt_config["host"], 
@@ -196,6 +204,12 @@ class MeshMonitor:
             
             # Wait a moment for connection to establish
             time.sleep(2)
+            # Publish a retained "started" status after attempting to connect
+            try:
+                # Try to send with confirmation; fall back to direct publish inside send_status
+                self.send_status("started", retain=True)
+            except Exception as e:
+                logger.debug(f"Could not send started status: {e}")
             
             logger.info(f"MQTT client connecting to {self.mqtt_config['host']}:{self.mqtt_config.get('port', 1883)}")
             
@@ -276,6 +290,35 @@ class MeshMonitor:
             "last_publish_status": self.last_publish_status,
             "success_rate": self.published_messages / max(1, self.published_messages + self.failed_messages) * 100
         }
+
+    def send_status(self, status: str, retain: bool = False):
+        """Publish a small JSON status message to the node topic with ISO 8601 timestamp.
+
+        Tries a confirmed publish first (so counters/stats are updated). If that fails
+        it falls back to a direct publish on the MQTT client to avoid crashing the monitor.
+        """
+        try:
+            payload = json.dumps({
+                "status": status,
+                "timestamp": datetime.now().astimezone().isoformat()
+            }, ensure_ascii=False)
+
+            sent = False
+            try:
+                sent = self.publish_with_confirmation(self.status_topic, payload, qos=1, retain=retain)
+            except Exception:
+                sent = False
+
+            if not sent:
+                # Fallback to direct publish if confirmation path failed
+                try:
+                    if self.node_client:
+                        self.node_client.publish(self.status_topic, payload, qos=1, retain=retain)
+                except Exception as e:
+                    logger.debug(f"send_status fallback publish failed: {e}")
+
+        except Exception as e:
+            logger.debug(f"send_status exception: {e}")
     
     def load_known_nodes(self) -> Set[str]:
         """Load previously known nodes from file"""
@@ -469,6 +512,11 @@ class MeshMonitor:
         
         while True:
             try:
+                # Publish a periodic "updated" heartbeat each check
+                try:
+                    self.send_status("updated")
+                except Exception:
+                    pass
                 # Periodically log connection statistics
                 now = time.time()
                 if now - last_stats_log >= stats_interval:
@@ -515,8 +563,14 @@ class MeshMonitor:
         if self.node_client:
             # Send a disconnect message
             if self.mqtt_connected:
-                will_topic = self.mqtt_config.get("node_topic", "mesh/nodes/new") + "/status"
-                self.node_client.publish(will_topic, payload="{\"status\": \"shutdown\", \"timestamp\": " + str(time.time()) + "}", qos=1, retain=True)
+                shutdown_payload = json.dumps({
+                    "status": "shutdown",
+                    "timestamp": datetime.now().astimezone().isoformat()
+                })
+                try:
+                    self.node_client.publish(self.status_topic, payload=shutdown_payload, qos=1, retain=True)
+                except Exception as e:
+                    logger.debug(f"Cleanup publish failed: {e}")
                 time.sleep(1)  # Give it a moment to send
             
             self.node_client.loop_stop()
