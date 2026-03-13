@@ -2,27 +2,23 @@ from includes.maths import line_of_sight_distance
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-google_prefix='https://www.google.com/maps/place/'
-google_suffix=',12z/data=!4m4!3m3!8m2!3d52.2803!4d0.657!5m1!1e1'
+google_prefix = "https://www.google.com/maps/place/"
+google_suffix = ",12z/data=!4m4!3m3!8m2!3d52.2803!4d0.657!5m1!1e1"
 
 # From the source code
-#define ADV_TYPE_NONE         0
-#define ADV_TYPE_CHAT         1
-#define ADV_TYPE_REPEATER     2
-#define ADV_TYPE_ROOM         3
-#define ADV_TYPE_SENSOR       4
-node_types={
-  0: 'NONE',
-  1: 'CHAT',
-  2: 'REPEATER',
-  3: 'ROOM,',
-  4: 'SENSOR'
-}
+# define ADV_TYPE_NONE         0
+# define ADV_TYPE_CHAT         1
+# define ADV_TYPE_REPEATER     2
+# define ADV_TYPE_ROOM         3
+# define ADV_TYPE_SENSOR       4
+node_types = {0: "NONE", 1: "CHAT", 2: "REPEATER", 3: "ROOM,", 4: "SENSOR"}
+
 
 def google_maps_ref(coords):
-  lat=coords[0]
-  long=coords[1]
-  return f'<A HREF="{google_prefix}{lat}+{long}/@{lat},{long}{google_suffix}" TARGET="maps">{lat:.3f}°, {long:.3f}°</A>'
+    lat = coords[0]
+    long = coords[1]
+    return f'<A HREF="{google_prefix}{lat}+{long}/@{lat},{long}{google_suffix}" TARGET="maps">{lat:.3f}°, {long:.3f}°</A>'
+
 
 def parse_feed(feed: str):
     """
@@ -39,30 +35,38 @@ def parse_feed(feed: str):
     last_advert (in epoch)
 
     """
-    rows=[]
-    rows.append(['Name','Role','Location','Distance','Hops','Last heard'])
-    for idx,line in enumerate(feed):
-      if idx==0: # home node
-        home=[line.get('adv_lat'),line.get('adv_lon'),0]
-        rows.append([line.get('name'),
-                    'CHAT',
-                    google_maps_ref(home),
-                    'N/A',
-                    '0',
-                    'N/A'])
-      else:
-        coords=[line.get('adv_lat'),line.get('adv_lon'),0]
-        rows.append([line.get('adv_name'),
-                    node_types[line.get('type')],
+    rows = []
+    rows.append(["Name", "Role", "Location", "Distance", "Hops", "Last heard"])
+    for idx, line in enumerate(feed):
+        if idx == 0:  # home node
+            home = [line.get("adv_lat"), line.get("adv_lon"), 0]
+            rows.append(
+                [line.get("name"), "CHAT", google_maps_ref(home), "N/A", "0", "N/A"]
+            )
+            print(rows)
+        else:
+            coords = [line.get("adv_lat"), line.get("adv_lon"), 0]
+            rows.append(
+                [
+                    line.get("adv_name"),
+                    node_types[line.get("type")],
                     google_maps_ref(coords),
-                    line_of_sight_distance(home,coords),
-                    str(line.get('out_path_len')),
-                    datetime.fromtimestamp(line.get('last_advert'),tz=ZoneInfo('Europe/London')).strftime('%Y-%m-%d %H:%M:%S')
-                    ])
+                    line_of_sight_distance(home, coords),
+                    str(line.get("out_path_len")),
+                    datetime.fromtimestamp(
+                        line.get("last_advert"), tz=ZoneInfo("Europe/London")
+                    ).strftime("%Y-%m-%d %H:%M:%S"),
+                ]
+            )
     if not rows:
         return [], []
 
     headers = rows[0]
     data = rows[1:]
+
+    # Sort by 'Last Heard' (index 5) in reverse order, except for the home node (index 0)
+    if len(data) > 1:
+        # Keep home node at top, sort the rest
+        data = [data[0]] + sorted(data[1:], key=lambda x: x[5], reverse=True)
 
     return headers, data
