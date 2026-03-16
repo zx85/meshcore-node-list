@@ -15,6 +15,9 @@ node_types = {0: "NONE", 1: "CHAT", 2: "REPEATER", 3: "ROOM,", 4: "SENSOR"}
 
 
 def google_maps_ref(coords):
+    # No point in doing anything if the coords are 0
+    if coords[0] * coords[1] == 0:
+        return "N/A"
     lat = coords[0]
     long = coords[1]
     return f'<A HREF="{google_prefix}{lat}+{long}/@{lat},{long}{google_suffix}" TARGET="maps">{lat:.3f}°, {long:.3f}°</A>'
