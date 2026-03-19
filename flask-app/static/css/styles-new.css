@@ -229,6 +229,11 @@ td {
     .modal-content {
         background-color: #374151;
     }
+
+    /* Override for Google Maps InfoWindows to ensure text is visible on the default white background */
+    .gm-style-iw {
+        color: #111827;
+    }
 }
 
 #map-container {
