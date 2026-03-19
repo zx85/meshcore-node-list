@@ -23,7 +23,7 @@ def google_maps_ref(coords):
     return f'<A HREF="{google_prefix}{lat}+{long}/@{lat},{long}{google_suffix}" TARGET="maps">{lat:.3f}°, {long:.3f}°</A>'
 
 
-def parse_feed(feed: str):
+def parse_feed(feed: str, hours: int):
     """
     Convert JSON :
     - First dictionary -> home node
@@ -41,9 +41,11 @@ def parse_feed(feed: str):
     rows = []
 
     # Set a cutoff for nodes not heard from in 48 hours
-    cutoff_dt = datetime.now(ZoneInfo("Europe/London")) - timedelta(hours=48)
+    cutoff_dt = datetime.now(ZoneInfo("Europe/London")) - timedelta(hours)
 
-    rows.append(["Name", "Role", "Location", "Distance", "Hops", "Last heard (<48hrs)"])
+    rows.append(
+        ["Name", "Role", "Location", "Distance", "Hops", f"Last heard (<{hours}hrs)"]
+    )
     for idx, line in enumerate(feed):
         if idx == 0:  # home node
             home = [line.get("adv_lat"), line.get("adv_lon"), 0]

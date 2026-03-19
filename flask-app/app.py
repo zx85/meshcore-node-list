@@ -48,6 +48,8 @@ monitor_started = False
 # Get Google Maps API Key
 google_maps_api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
 
+hours = int(os.environ.get("HOURS", "48"))
+
 # Version
 with open("version.txt") as vf:
     APP_VERSION = vf.read().strip()
@@ -160,7 +162,7 @@ def log_request():
 @app.route("/")
 def serve_index():
     entries = load_entries()
-    headers, data = parse_feed(entries)
+    headers, data = parse_feed(feed=entries, hours=hours)
     return render_template(
         "index.html.j2",
         headers=headers,
