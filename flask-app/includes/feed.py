@@ -41,7 +41,7 @@ def parse_feed(feed: str, hours: int):
     rows = []
 
     # Set a cutoff for nodes not heard from in 48 hours
-    cutoff_dt = datetime.now(ZoneInfo("Europe/London")) - timedelta(hours)
+    cutoff_dt = datetime.now(ZoneInfo("Europe/London")) - timedelta(hours=hours)
 
     rows.append(
         ["Name", "Role", "Location", "Distance", "Hops", f"Last heard (<{hours}hrs)"]
