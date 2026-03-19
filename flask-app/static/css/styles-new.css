@@ -85,6 +85,10 @@ h1, h2, h3, h4 {
     margin-bottom: 10px;
 }
 
+h3 {
+    margin-top: 0;
+}
+
 /* Toolbar above table */
 .table-toolbar {
     max-width: 1300px;
