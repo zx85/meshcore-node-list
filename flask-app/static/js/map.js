@@ -66,7 +66,10 @@ async function initMap() {
             // Add a click listener for the tooltip
             marker.addListener('click', () => {
                 infoWindow.setContent(`<strong>${node.name}</strong><br>Role: ${node.role}`);
-                infoWindow.open(map, marker);
+                infoWindow.open({
+                    anchor: marker,
+                    map: map
+                });
             });
 
             markers.push(marker);
