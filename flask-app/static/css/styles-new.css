@@ -1,9 +1,7 @@
 /* General page styling */
 body {
     font-family: "DM Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    background-color: #f9fafb;
     padding: 30px;
-    color: #111827;
 }
 
 /* Dark mode styles */
@@ -52,10 +50,39 @@ body {
     }
 }
 
+/* Light mode styles */
+@media (prefers-color-scheme: light) {
+    body {
+        background-color: #f9fafb;
+        color: #111827;
+    }
+    
+    h1, h2, h3, h4 {
+        color: #333;
+    }
+    
+    table {
+        background: #fff;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    thead {
+        background-color: #4f46e5;
+        color: white;
+    }
+    
+    tbody tr:nth-child(even) {
+        background-color: #f3f4f6;
+    }
+    
+    tbody tr:hover {
+        background-color: #e0e7ff;
+    }
+}
+
 h1, h2, h3, h4 {
     text-align: center;
     margin-bottom: 10px;
-    color: #333;
 }
 
 /* Toolbar above table */
