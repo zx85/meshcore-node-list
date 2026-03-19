@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template, jsonify, send_from_directory
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
@@ -157,6 +157,15 @@ def initialize_monitor():
 @app.before_request
 def log_request():
     logger.info(f"Request: {request.method} {request.path}")
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(
+        os.path.join(app.root_path, "static"),
+        "favicon.ico",
+        mimetype="image/vnd.microsoft.icon",
+    )
 
 
 @app.route("/")
