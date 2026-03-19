@@ -8,11 +8,15 @@ services:
     environment:
       - SECRET_KEY=this-key-is-secret-then
       - MESH_SERIAL_DEVICE=/dev/ttyACM0
+      - MESH_SERIAL_ENABLED="true"
       - node_data_file="/app/node_data/nodes.json"
       - message_data_file="/app/node_data/node_messages.txt"
+    # If you set MESH_SERIAL_ENABLED to false
+    # You'll need to remove the device definition below
     devices:
       - "/dev/ttyACM0:/dev/ttyACM0"
     volumes:
+      # Set this to your node data location
       - /home/james/meshcore-node-list/node_data:/app/node_data
       - ./logs:/app/logs
       # - ./flask-app/static:/app/static
