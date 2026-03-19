@@ -180,7 +180,7 @@ def map_data():
     nodes = load_entries()
     map_nodes = []
 
-    # From includes/feed.py, with "ROOM," corrected to "ROOM"
+    # From includes/feed.py
     node_types = {0: "NONE", 1: "CHAT", 2: "REPEATER", 3: "ROOM", 4: "SENSOR"}
 
     cutoff_timestamp = time.time() - (48 * 60 * 60)

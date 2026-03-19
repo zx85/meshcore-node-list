@@ -11,7 +11,7 @@ google_suffix = ",12z/data=!4m4!3m3!8m2!3d52.2803!4d0.657!5m1!1e1"
 # define ADV_TYPE_REPEATER     2
 # define ADV_TYPE_ROOM         3
 # define ADV_TYPE_SENSOR       4
-node_types = {0: "NONE", 1: "CHAT", 2: "REPEATER", 3: "ROOM,", 4: "SENSOR"}
+node_types = {0: "NONE", 1: "CHAT", 2: "REPEATER", 3: "ROOM", 4: "SENSOR"}
 
 
 def google_maps_ref(coords):
