@@ -181,6 +181,8 @@ def map_data():
     # From includes/feed.py, with "ROOM," corrected to "ROOM"
     node_types = {0: "NONE", 1: "CHAT", 2: "REPEATER", 3: "ROOM", 4: "SENSOR"}
 
+    cutoff_timestamp = time.time() - (48 * 60 * 60)
+
     if not nodes:
         return jsonify([])
 
@@ -198,6 +200,10 @@ def map_data():
 
     # The rest are advertised nodes
     for node in nodes[1:]:
+        last_advert_epoch = node.get("last_advert")
+        if not last_advert_epoch or last_advert_epoch < cutoff_timestamp:
+            continue
+
         lat = node.get("adv_lat")
         lon = node.get("adv_lon")
         if lat and lon and (lat * lon != 0):

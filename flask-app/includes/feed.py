@@ -1,5 +1,5 @@
 from includes.maths import line_of_sight_distance
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 google_prefix = "https://www.google.com/maps/place/"
@@ -39,6 +39,10 @@ def parse_feed(feed: str):
 
     """
     rows = []
+
+    # Set a cutoff for nodes not heard from in 48 hours
+    cutoff_dt = datetime.now(ZoneInfo("Europe/London")) - timedelta(hours=48)
+
     rows.append(["Name", "Role", "Location", "Distance", "Hops", "Last heard"])
     for idx, line in enumerate(feed):
         if idx == 0:  # home node
@@ -48,6 +52,16 @@ def parse_feed(feed: str):
             )
             print(rows)
         else:
+            last_advert_epoch = line.get("last_advert")
+            if not last_advert_epoch:
+                continue
+
+            last_heard_dt = datetime.fromtimestamp(
+                last_advert_epoch, tz=ZoneInfo("Europe/London")
+            )
+            if last_heard_dt < cutoff_dt:
+                continue
+
             coords = [line.get("adv_lat"), line.get("adv_lon"), 0]
             rows.append(
                 [
@@ -56,9 +70,7 @@ def parse_feed(feed: str):
                     google_maps_ref(coords),
                     line_of_sight_distance(home, coords),
                     str(line.get("out_path_len")),
-                    datetime.fromtimestamp(
-                        line.get("last_advert"), tz=ZoneInfo("Europe/London")
-                    ).strftime("%Y-%m-%d %H:%M:%S"),
+                    last_heard_dt.strftime("%Y-%m-%d %H:%M:%S"),
                 ]
             )
     if not rows:
