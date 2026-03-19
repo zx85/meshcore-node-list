@@ -12,6 +12,7 @@
 <body>
     <h1>Meshcore Node List</h1>
     <h3>(heard in the past 48 hours)</h2>
+    <h4><pre>(at {{ last_modified }})</pre></h4>
 
     <div class="table-container">
         <div class="table-toolbar">
@@ -22,20 +23,43 @@
             {% endif %}
         </div>
         <table>
+            {% set center_indexes = [1,2,3,4] %}
             <thead>
                 <tr>
-                    <th>#</th>
-                    {% for header in headers %}
-                        <th>{{ header }}</th>
+                    {% for idx,header in enumerate(headers) %}
+                        {% set header_class = "" %}
+                        {% if idx in center_indexes %}
+                            {% set header_class = "td-center" %}
+                        {% endif %}
+                        <th class="{{ header_class }}">{{ header }}</th>
                     {% endfor %}
                 </tr>
             </thead>
             <tbody>
                 {% for row in data %}
                 <tr>
-                    <td>{{ loop.index }}</td>
-                    {% for cell in row %}
-                        <td>{{ cell|safe }}</td>
+                    {% for idx, cell in enumerate(row) %}
+                        {% set cell_class = "" %}
+                        {% if idx in center_indexes %}
+                            {% set cell_class = "td-center" %}
+                        {% endif %}
+                        {% if headers[idx] == "Role" %}
+                            <td class="td-center">
+                            {% if cell == "CHAT" %}
+                                <span class="badge role-client">
+                            {% elif cell == "REPEATER" %}
+                                <span class="badge role-repeater">
+                            {% elif cell == "ROOM" %}
+                                <span class="badge role-router">
+                            {% elif cell == "NONE" %}
+                                <span class="badge role-na">
+                            {% else %}
+                                <span class="badge role-other">
+                            {% endif %}
+                            {{ cell }}</span></td>
+                        {% else %}
+                            <td class="{{ cell_class }}">{{ cell.replace('N/A', '<span class="badge role-na">') }}</td>
+                        {% endif %}
                     {% endfor %}
                 </tr>
                 {% endfor %}
