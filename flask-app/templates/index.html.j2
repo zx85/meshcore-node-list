@@ -33,9 +33,10 @@
                         {% endif %}
                         <th class="{{ header_class }}">
                             {% if idx == 5 %}
-                                <input type="checkbox" id="filter-recent" checked title="Filter to last {{ hours }} hours">
+                                Last heard (<input type="checkbox" id="filter-recent" checked title="Filter to last {{ hours }} hours">&lt;{{ hours }}hrs)
+                            {% else %}
+                                {{ header }}
                             {% endif %}
-                            {{ header }}
                         </th>
                     {% endfor %}
                 </tr>
