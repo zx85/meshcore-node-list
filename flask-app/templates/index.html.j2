@@ -31,14 +31,19 @@
                         {% if idx in center_indexes %}
                             {% set header_class = "td-center" %}
                         {% endif %}
-                        <th class="{{ header_class }}">{{ header }}</th>
+                        <th class="{{ header_class }}">
+                            {% if idx == 5 %}
+                                <input type="checkbox" id="filter-recent" checked title="Filter to last {{ hours }} hours">
+                            {% endif %}
+                            {{ header }}
+                        </th>
                     {% endfor %}
                 </tr>
             </thead>
             <tbody>
                 {% for row in data %}
-                <tr>
-                    {% for idx, cell in enumerate(row) %}
+                <tr class="node-row" data-epoch="{{ row[6] }}">
+                    {% for idx, cell in enumerate(row[:6]) %}
                         {% set cell_class = "" %}
                         {% if idx in center_indexes %}
                             {% set cell_class = "td-center" %}
@@ -122,5 +127,29 @@
     </script>
     {% endif %}
 
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const filterCheckbox = document.getElementById('filter-recent');
+            if (!filterCheckbox) return;
+
+            const rows = document.querySelectorAll('.node-row');
+            const filterHours = {{ hours }};
+            
+            const applyFilter = function() {
+                const now = Math.floor(Date.now() / 1000);
+                const limit = now - (filterHours * 3600);
+                
+                rows.forEach(row => {
+                    const epoch = parseInt(row.getAttribute('data-epoch'));
+                    if (epoch === 0) return; // Always show home node
+                    
+                    row.style.display = (!filterCheckbox.checked || epoch > limit) ? '' : 'none';
+                });
+            };
+
+            filterCheckbox.addEventListener('change', applyFilter);
+            applyFilter(); // Initial check
+        });
+    </script>
 </body>
 </html>

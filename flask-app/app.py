@@ -180,6 +180,7 @@ def serve_index():
         last_modified=last_modified,
         google_maps_api_key=google_maps_api_key,
         enumerate=enumerate,
+        hours=hours,
     )
 
 

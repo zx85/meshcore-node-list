@@ -40,9 +40,6 @@ def parse_feed(feed: str, hours: int):
     """
     rows = []
 
-    # Set a cutoff for nodes not heard from in 48 hours
-    cutoff_dt = datetime.now(ZoneInfo("Europe/London")) - timedelta(hours=hours)
-
     rows.append(
         ["Name", "Role", "Location", "Distance", "Hops", f"Last heard (<{hours}hrs)"]
     )
@@ -50,7 +47,7 @@ def parse_feed(feed: str, hours: int):
         if idx == 0:  # home node
             home = [line.get("adv_lat"), line.get("adv_lon"), 0]
             rows.append(
-                [line.get("name"), "CHAT", google_maps_ref(home), "N/A", "0", "N/A"]
+                [line.get("name"), "CHAT", google_maps_ref(home), "N/A", "0", "N/A", 0]
             )
             print(rows)
         else:
@@ -61,9 +58,6 @@ def parse_feed(feed: str, hours: int):
             last_heard_dt = datetime.fromtimestamp(
                 last_advert_epoch, tz=ZoneInfo("Europe/London")
             )
-            if last_heard_dt < cutoff_dt:
-                continue
-
             coords = [line.get("adv_lat"), line.get("adv_lon"), 0]
             rows.append(
                 [
@@ -73,6 +67,7 @@ def parse_feed(feed: str, hours: int):
                     line_of_sight_distance(home, coords),
                     str(line.get("out_path_len")),
                     last_heard_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    last_advert_epoch,
                 ]
             )
     if not rows:
