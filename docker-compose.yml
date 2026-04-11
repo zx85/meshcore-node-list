@@ -1,5 +1,5 @@
 services:
-  meshtastic-node-list:
+  meshcore-node-list:
     container_name: meshcore-node-list
     build: 
       context: ./flask-app
