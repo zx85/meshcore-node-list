@@ -1,9 +1,7 @@
 /* General page styling */
 body {
     font-family: "DM Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    background-color: #f9fafb;
     padding: 30px;
-    color: #111827;
 }
 
 /* Dark mode styles */
@@ -11,6 +9,11 @@ body {
     body {
         background-color: #1f2937;
         color: #f9fafb;
+    }
+
+    .modal-content {
+        background-color: #374151;
+        border: 1px solid #4b5563;
     }
     
     h1, h2, h3, h4 {
@@ -47,10 +50,55 @@ body {
     }
 }
 
+/* Light mode styles */
+@media (prefers-color-scheme: light) {
+    body {
+        background-color: #f9fafb;
+        color: #111827;
+    }
+    
+    h1, h2, h3, h4 {
+        color: #333;
+    }
+    
+    table {
+        background: #fff;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    thead {
+        background-color: #4f46e5;
+        color: white;
+    }
+    
+    tbody tr:nth-child(even) {
+        background-color: #f3f4f6;
+    }
+    
+    tbody tr:hover {
+        background-color: #e0e7ff;
+    }
+}
+
 h1, h2, h3, h4 {
     text-align: center;
-    margin-bottom: 10px;
-    color: #333;
+    margin-bottom: 6px;
+}
+
+h3 {
+    margin-top: 0;
+}
+
+/* Toolbar above table */
+.table-toolbar {
+    max-width: 1300px;
+    margin: 0 auto 15px auto;
+    text-align: center;
+}
+
+.table-container {
+    max-width: 1300px;
+    margin: 0 auto;
 }
 
 /* Table styling */
@@ -130,6 +178,69 @@ td {
 .role-router { background-color: #6313aa; }
 .role-other { background-color: #93931a; }
 .role-na { background-color: #9ca3af; }
+
+/* Modal Styles */
+.modal {
+    display: none; /* Hidden by default */
+    position: fixed; /* Stay in place */
+    z-index: 1000; /* Sit on top */
+    left: 0;
+    top: 0;
+    width: 100%; /* Full width */
+    height: 100%; /* Full height */
+    overflow: auto; /* Enable scroll if needed */
+    background-color: rgba(0,0,0,0.6); /* Black w/ opacity */
+    padding-top: 60px;
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto; /* 5% from the top and centered */
+    padding: 20px;
+    border: 1px solid #888;
+    width: 90%;
+    max-width: 1200px;
+    border-radius: 8px;
+    position: relative;
+}
+
+.close-button {
+    color: #aaa;
+    position: absolute;
+    top: 10px;
+    right: 25px;
+    font-size: 35px;
+    font-weight: bold;
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: #333;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+    .close-button:hover,
+    .close-button:focus {
+        color: #f3f4f6;
+    }
+
+    .modal-content {
+        background-color: #374151;
+    }
+
+    /* Override for Google Maps InfoWindows to ensure text is visible on the default white background */
+    .gm-style-iw {
+        color: #111827;
+    }
+}
+
+#map-container {
+    height: 70vh;
+    width: 100%;
+    border-radius: 4px;
+}
 
 footer {
     text-align: right;

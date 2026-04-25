@@ -2,7 +2,7 @@
 
 A small Flask web app that lists Meshcore nodes visible from a local monitor and optionally forwards events to MQTT. It is intended to provide two main functions:
 
-- A simple webpage showing the current nodes (name, role, location, distance, hops, last heard).
+- A simple webpage showing the current nodes (name, role, location, distance, hops, last heard), with an interactive map view.
 - Background monitoring that publishes MQTT messages when new nodes appear and when messages are received by the monitor.
 
 Version: see [flask-app/version.txt](flask-app/version.txt)
@@ -30,6 +30,7 @@ Version: see [flask-app/version.txt](flask-app/version.txt)
 1. A local process (or the included script [scripts/get_nodes.sh](scripts/get_nodes.sh)) collects node JSON from the mesh CLI into `node_data/nodes.json`.
 2. The Flask route `/` loads the JSON (via `load_entries` in [flask-app/app.py](flask-app/app.py)) and calls [`includes.feed.parse_feed`](flask-app/includes/feed.py) to build the table shown by [flask-app/templates/index.html.j2](flask-app/templates/index.html.j2).
 3. If MQTT is configured, [`classes.mesh_monitor.MeshMonitor`](flask-app/classes/mesh_monitor.py) runs in a background thread started by [`start_background_monitor`](flask-app/app.py). It:
+4. A "View Map" button opens a modal dialog displaying all nodes with location data on a Google Map. This requires a `GOOGLE_MAPS_API_KEY`.
    - Detects newly seen nodes and publishes announcements to the configured MQTT topic.
    - Polls the serial device for incoming messages (via `meshcli sync_msgs`), parses them and publishes structured MQTT messages.
 
@@ -41,6 +42,7 @@ You can configure behavior via environment variables (set them in a `.env` file 
   - NODE_DATA_FILE — path to nodes JSON (default `/app/node_data/nodes.json`)  
   - MESSAGE_DATA_FILE — path to message dump (default `/app/node_data/node_messages.txt`)
   - Version file used in the footer: [flask-app/version.txt](flask-app/version.txt)
+  - GOOGLE_MAPS_API_KEY — Your Google Maps JavaScript API key. If not provided, the map feature will be disabled.
 
 - MQTT / monitor
   - MQTT_HOST — hostname or IP of MQTT broker (if not set, monitor will not start)

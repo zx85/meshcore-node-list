@@ -1,5 +1,5 @@
 from includes.maths import line_of_sight_distance
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 google_prefix = "https://www.google.com/maps/place/"
@@ -23,7 +23,7 @@ def google_maps_ref(coords):
     return f'<A HREF="{google_prefix}{lat}+{long}/@{lat},{long}{google_suffix}" TARGET="maps">{lat:.3f}°, {long:.3f}°</A>'
 
 
-def parse_feed(feed: str):
+def parse_feed(feed: str, hours: int):
     """
     Convert JSON :
     - First dictionary -> home node
@@ -39,15 +39,25 @@ def parse_feed(feed: str):
 
     """
     rows = []
-    rows.append(["Name", "Role", "Location", "Distance", "Hops", "Last heard"])
+
+    rows.append(
+        ["Name", "Role", "Location", "Distance", "Hops", f"Last heard (<{hours}hrs)"]
+    )
     for idx, line in enumerate(feed):
         if idx == 0:  # home node
             home = [line.get("adv_lat"), line.get("adv_lon"), 0]
             rows.append(
-                [line.get("name"), "CHAT", google_maps_ref(home), "N/A", "0", "N/A"]
+                [line.get("name"), "CHAT", google_maps_ref(home), "N/A", "0", "N/A", 0]
             )
             print(rows)
         else:
+            last_advert_epoch = line.get("last_advert")
+            if not last_advert_epoch:
+                continue
+
+            last_heard_dt = datetime.fromtimestamp(
+                last_advert_epoch, tz=ZoneInfo("Europe/London")
+            )
             coords = [line.get("adv_lat"), line.get("adv_lon"), 0]
             rows.append(
                 [
@@ -56,9 +66,8 @@ def parse_feed(feed: str):
                     google_maps_ref(coords),
                     line_of_sight_distance(home, coords),
                     str(line.get("out_path_len")),
-                    datetime.fromtimestamp(
-                        line.get("last_advert"), tz=ZoneInfo("Europe/London")
-                    ).strftime("%Y-%m-%d %H:%M:%S"),
+                    last_heard_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    last_advert_epoch,
                 ]
             )
     if not rows:
