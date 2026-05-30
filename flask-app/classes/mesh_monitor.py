@@ -211,25 +211,30 @@ class MqttHandler:
 
 class MeshMonitor:
     def __init__(self, mqtt_config: Dict[str, Any], db_path: str, _unused: str):
-        self.db = DatabaseManager(db_path)
-        self.device = MeshDevice(os.environ.get("MESH_SERIAL_DEVICE", "/dev/ttyACM0"))
+        # Clean up path to handle potential literal quotes from docker env
+        db_path_clean = db_path.strip('"')
+        self.db = DatabaseManager(db_path_clean)
+
+        serial_dev = os.environ.get("MESH_SERIAL_DEVICE", "/dev/ttyACM0").strip('"')
+        self.device = MeshDevice(serial_dev)
         self.mqtt = MqttHandler(mqtt_config)
-        self.serial_enabled = (
-            os.environ.get("MESH_SERIAL_ENABLED", "true").lower() == "true"
-        )
+
+        # Robust boolean check stripping quotes
+        serial_env = os.environ.get("MESH_SERIAL_ENABLED", "true").strip('"').lower()
+        self.serial_enabled = serial_env == "true"
         self._stop_event = threading.Event()
 
     def monitor_loop(self, _unused_cb, interval: int = 30):
+        logger.info(f"Monitor loop called. Serial enabled: {self.serial_enabled}")
         if not self.serial_enabled:
+            logger.warning("Monitor loop exiting: Serial monitoring is disabled.")
             return
 
-        # Message polling thread
+        logger.info("Starting background worker threads...")
         threading.Thread(target=self._msg_worker, daemon=True).start()
-        # Discovery thread
         threading.Thread(
             target=self._discovery_worker, args=(interval,), daemon=True
         ).start()
-        # Reboot thread
         threading.Thread(target=self._reboot_worker, daemon=True).start()
 
         while not self._stop_event.is_set():
@@ -237,56 +242,63 @@ class MeshMonitor:
 
     def _reboot_worker(self):
         """Replicates the specific scheduled reboot times from crontab (04:32, 10:32, 16:32, 22:32)"""
-        # Brief initial delay to let the application settle
-        time.sleep(60)
+        try:
+            logger.info("Reboot worker thread started.")
+            # Brief initial delay to let the application settle
+            time.sleep(60)
 
-        while not self._stop_event.is_set():
-            now = datetime.now()
-            scheduled_hours = [4, 10, 16, 22]
-            target_time = None
+            while not self._stop_event.is_set():
+                now = datetime.now()
+                scheduled_hours = [4, 10, 16, 22]
+                target_time = None
 
-            # Find the next scheduled reboot time for today
-            for hour in scheduled_hours:
-                candidate = now.replace(hour=hour, minute=32, second=0, microsecond=0)
-                if candidate > now:
-                    target_time = candidate
-                    break
+                # Find the next scheduled reboot time for today
+                for hour in scheduled_hours:
+                    candidate = now.replace(
+                        hour=hour, minute=32, second=0, microsecond=0
+                    )
+                    if candidate > now:
+                        target_time = candidate
+                        break
 
-            # If no more reboots today, target 04:32 tomorrow
-            if not target_time:
-                target_time = (now + timedelta(days=1)).replace(
-                    hour=4, minute=32, second=0, microsecond=0
+                # If no more reboots today, target 04:32 tomorrow
+                if not target_time:
+                    target_time = (now + timedelta(days=1)).replace(
+                        hour=4, minute=32, second=0, microsecond=0
+                    )
+
+                wait_seconds = int((target_time - now).total_seconds())
+                logger.info(
+                    f"Next reboot scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S')}. Sleeping for {wait_seconds}s."
                 )
 
-            wait_seconds = int((target_time - now).total_seconds())
-            logger.info(
-                f"Next reboot scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S')}. Sleeping for {wait_seconds}s."
-            )
+                # Interruptible sleep until target time
+                stop_sleeping = False
+                for _ in range(wait_seconds):
+                    if self._stop_event.is_set():
+                        stop_sleeping = True
+                        break
+                    time.sleep(1)
 
-            # Interruptible sleep until target time
-            stop_sleeping = False
-            for _ in range(wait_seconds):
-                if self._stop_event.is_set():
-                    stop_sleeping = True
+                if stop_sleeping:
                     break
-                time.sleep(1)
 
-            if stop_sleeping:
-                break
+                logger.info("Starting scheduled node reboot...")
 
-            logger.info("Starting scheduled node reboot...")
-
-            # 1. Send reboot command (reboot\x0D)
-            if self.device.write_raw(b"reboot\x0d"):
-                logger.info("Reboot command sent. Waiting 30s for recovery...")
-                # 2. Wait for node to come back up
-                time.sleep(30)
-                # 3. Sync the clock
-                logger.info("Syncing node clock after reboot...")
-                self.device.run_meshcli(["clock", "sync"])
-                logger.info("Node clock synced. Reboot cycle complete.")
+                # 1. Send reboot command (reboot\x0D)
+                if self.device.write_raw(b"reboot\x0d"):
+                    logger.info("Reboot command sent. Waiting 30s for recovery...")
+                    # 2. Wait for node to come back up
+                    time.sleep(30)
+                    # 3. Sync the clock
+                    logger.info("Syncing node clock after reboot...")
+                    self.device.run_meshcli(["clock", "sync"])
+                    logger.info("Node clock synced. Reboot cycle complete.")
+        except Exception as e:
+            logger.error(f"Reboot worker crashed: {e}")
 
     def _msg_worker(self):
+        logger.info("Message polling worker thread started.")
         while not self._stop_event.is_set():
             res = self.device.run_meshcli(["sync_msgs"])
             if res and res.stdout.strip():

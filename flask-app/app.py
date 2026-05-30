@@ -36,10 +36,14 @@ last_modified = ""
 CACHE_TIMEOUT = 60  # seconds
 
 # Get the environment variables from .env file
-node_data_file = os.environ.get("NODE_DATA_FILE", "/app/node_data/nodes.db")
+# Handling both cases and stripping quotes
+node_data_file = os.environ.get(
+    "NODE_DATA_FILE", os.environ.get("node_data_file", "/app/node_data/nodes.db")
+).strip('"')
 message_data_file = os.environ.get(
-    "MESSAGE_DATA_FILE", "/app/node_data/node_messages.txt"
-)
+    "MESSAGE_DATA_FILE",
+    os.environ.get("message_data_file", "/app/node_data/node_messages.txt"),
+).strip('"')
 
 # Mesh Monitor instance - global so it persists across requests
 mesh_monitor = None
