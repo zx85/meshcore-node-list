@@ -163,7 +163,9 @@ class DatabaseManager:
                 "SELECT * FROM nodes WHERE public_key LIKE ? || '%' LIMIT 1",
                 (pubkey_prefix,),
             )
-            return dict(cursor.fetchone()) if cursor.fetchone() else None
+            logging.info('Did the select query.. is it the next line?')
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
     def get_all_nodes(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -356,6 +358,9 @@ class MqttHandler:
         topic = self.config.get("message_topic", "mesh/messages")
         self._publish(topic, json.dumps(msg))
 
+    def publish_advert(self, advert):
+        topic = self.config.get("advert_topic", "mesh/advert")
+        self._publish(topic, json.dumps(advert))
 
 class MeshMonitor:
     def __init__(self, mqtt_config: Dict[str, Any], db_path: str, _unused: str):
@@ -391,10 +396,11 @@ class MeshMonitor:
                 # Resolve sender name from database
                 sender_display = pubkey_prefix
                 if pubkey_prefix:
+                    logger.info(f'Looking for {pubkey_prefix} in the database')
                     node = self.db.get_node_by_pubkey_prefix(pubkey_prefix)
                     if node and node.get("adv_name"):
                         sender_display = node["adv_name"]
-                        logger.debug(
+                        logger.info(
                             f"Resolved sender {pubkey_prefix} to '{sender_display}'"
                         )
 
@@ -419,14 +425,18 @@ class MeshMonitor:
         async def on_advert(event):
             try:
                 node_info = event.payload
-                logger.debug(
-                    f"Event: Advert from {node_info.get('adv_name', 'Unknown')}"
+                logger.info(
+                    f"Event: Advert - {json.dumps(node_info, indent=2)}"
                 )
-
-                # Update node record in database
-                if self.db.update_node(node_info):
-                    # If this is a new discovery, publish to MQTT
-                    self.mqtt.publish_node(node_info)
+                if node_info.get('public_key'):
+                    node = self.db.get_node_by_pubkey_prefix(node_info.get('public_key')[:12])
+                    if node and node.get("adv_name"):
+                        sender=node.get('adv_name')
+                    else:
+                        sender=node_info.get('public_key')[:12]
+                else:
+                    sender='unknown'
+                self.mqtt.publish_advert({'sender': sender})
             except Exception as e:
                 logger.error(f"Error in on_advert listener: {e}")
 
@@ -548,7 +558,7 @@ class MeshMonitor:
                             )
                         nodes_processed += 1
                     except Exception as e:
-                        logger.error(f"DB Error processing node '{name}': {e}")
+                        logger.error(f"DB Error processing node '{node_info}': {e}")
             else:
                 logger.debug("No contacts found on device.")
 

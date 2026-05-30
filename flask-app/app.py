@@ -99,6 +99,7 @@ def start_background_monitor():
         "node_topic": os.environ.get("MQTT_NODE_TOPIC", "meshcore/nodes/new"),
         "status_topic": os.environ.get("MQTT_STATUS_TOPIC", "meshcore/status"),
         "message_topic": os.environ.get("MQTT_MESSAGE_TOPIC", "meshcore/messages"),
+        "advert_topic": os.environ.get("MQTT_ADVERT_TOPIC", "meshcore/advert"),        
     }
 
     try:
