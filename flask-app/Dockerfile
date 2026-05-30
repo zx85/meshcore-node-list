@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.12-slim
+FROM ghcr.io/astral-sh/uv:debian-slim
 
 # Install system dependencies needed for meshcore and its C-extensions (like bleak/dbus-fast)
 RUN apt-get update && apt-get install -y --no-install-recommends \
