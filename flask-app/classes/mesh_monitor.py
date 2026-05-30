@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Dict, Set, Any
 from datetime import datetime, timedelta
 
+try:
+    from meshcore_cli.app import MeshApp
+
+    HAS_MESH_LIB = True
+except ImportError:
+    HAS_MESH_LIB = False
+
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -181,8 +188,86 @@ class MeshDevice:
     def __init__(self, serial_device: str):
         self.serial_device = serial_device
         self.lock = threading.Lock()
+        self._app = None
+
+    def _get_app(self):
+        """Lazy initialization of the MeshApp library"""
+        if not HAS_MESH_LIB:
+            logger.error(
+                "meshcore_cli library not found. Cannot communicate with device."
+            )
+            return None
+
+        if self._app is None:
+            try:
+                logger.info(f"Initializing MeshApp on {self.serial_device}...")
+                self._app = MeshApp(serial_port=self.serial_device)
+            except Exception as e:
+                logger.error(f"Failed to initialize MeshApp: {e}")
+        return self._app
+
+    def get_info(self):
+        with self.lock:
+            app = self._get_app()
+            if app:
+                try:
+                    return app.get_info()
+                except Exception as e:
+                    logger.error(f"Error in get_info: {e}")
+            return None
+
+    def get_contacts(self):
+        with self.lock:
+            app = self._get_app()
+            if app:
+                try:
+                    return app.get_contacts()
+                except Exception as e:
+                    logger.error(f"Error in get_contacts: {e}")
+            return []
+
+    def get_contact_info(self, name: str):
+        with self.lock:
+            app = self._get_app()
+            if app:
+                try:
+                    return app.get_contact_info(name)
+                except Exception as e:
+                    logger.error(f"Error in get_contact_info for '{name}': {e}")
+            return None
+
+    def sync_msgs(self):
+        with self.lock:
+            app = self._get_app()
+            if app:
+                try:
+                    return app.sync_messages()
+                except Exception as e:
+                    logger.error(f"Error in sync_msgs: {e}")
+            return []
+
+    def sync_clock(self):
+        with self.lock:
+            app = self._get_app()
+            if app:
+                try:
+                    return app.sync_clock()
+                except Exception as e:
+                    logger.error(f"Error in sync_clock: {e}")
+            return False
+
+    def reboot(self):
+        with self.lock:
+            app = self._get_app()
+            if app:
+                try:
+                    return app.reboot()
+                except Exception as e:
+                    logger.error(f"Error in reboot: {e}")
+            return False
 
     def run_meshcli(self, args: list):
+        """Legacy support for direct shell commands if needed, though mostly deprecated now"""
         if not os.path.exists(self.serial_device):
             return None
         with self.lock:
@@ -202,20 +287,6 @@ class MeshDevice:
             except Exception as e:
                 logger.error(f"MeshCLI execution error: {e}")
                 return None
-
-    def write_raw(self, data: bytes):
-        """Send raw bytes to the device, respecting the lock"""
-        if not os.path.exists(self.serial_device):
-            return False
-        with self.lock:
-            try:
-                with open(self.serial_device, "wb") as f:
-                    f.write(data)
-                    f.flush()
-                return True
-            except Exception as e:
-                logger.error(f"Serial write error: {e}")
-                return False
 
 
 class MqttHandler:
@@ -291,23 +362,6 @@ class MeshMonitor:
         while not self._stop_event.is_set():
             time.sleep(1)
 
-    def _extract_json(self, text):
-        """Extract JSON object from potentially noisy CLI output"""
-        if not text:
-            logger.debug("JSON extraction failed: text is empty")
-            return None
-        try:
-            # Look for the first '{' and last '}' to isolate JSON
-            start = text.find("{")
-            end = text.rfind("}")
-            if start != -1 and end != -1:
-                json_str = text[start : end + 1]
-                logger.debug(f"Found JSON candidate: {json_str[:50]}...")
-                return json.loads(json_str)
-        except Exception as e:
-            logger.debug(f"JSON extraction failed for text: {repr(text)}. Error: {e}")
-        return None
-
     def _reboot_worker(self):
         """Replicates the specific scheduled reboot times from crontab (04:32, 10:32, 16:32, 22:32)"""
         try:
@@ -353,14 +407,14 @@ class MeshMonitor:
 
                 logger.info("Starting scheduled node reboot...")
 
-                # 1. Send reboot command (reboot\x0D)
-                if self.device.write_raw(b"reboot\x0d"):
+                # Use the library reboot method
+                if self.device.reboot():
                     logger.info("Reboot command sent. Waiting 30s for recovery...")
                     # 2. Wait for node to come back up
                     time.sleep(30)
                     # 3. Sync the clock
                     logger.info("Syncing node clock after reboot...")
-                    self.device.run_meshcli(["clock", "sync"])
+                    self.device.sync_clock()
                     logger.info("Node clock synced. Reboot cycle complete.")
         except Exception as e:
             logger.error(f"Reboot worker crashed: {e}")
@@ -368,14 +422,13 @@ class MeshMonitor:
     def _msg_worker(self):
         logger.info("Message polling worker thread started.")
         while not self._stop_event.is_set():
-            res = self.device.run_meshcli(["sync_msgs"])
-            if res and res.stdout.strip():
-                for line in res.stdout.splitlines():
-                    parsed = parse_mesh_message_advanced(line)
-                    if parsed["message"]:
-                        self.db.store_message(parsed)
-                        self.mqtt.publish_message(parsed)
-                        logger.debug(f"Published message: {parsed['clean']}")
+            msgs = self.device.sync_msgs()
+            for msg_text in msgs:
+                parsed = parse_mesh_message_advanced(msg_text)
+                if parsed["message"]:
+                    self.db.store_message(parsed)
+                    self.mqtt.publish_message(parsed)
+                    logger.debug(f"Published message: {parsed['clean']}")
             time.sleep(5)
 
     def _discovery_worker(self, interval):
