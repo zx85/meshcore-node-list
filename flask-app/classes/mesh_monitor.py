@@ -349,7 +349,7 @@ class MeshMonitor:
         async def on_message(event):
             try:
                 data = event.payload
-                logger.debug(f"Payload: {json.dumps(data, indent=2)}")
+                logger.info(f"Payload: {json.dumps(data, indent=2)}")
                 logger.info(f"Event: New message from {data.get('pubkey_prefix')}")
 
                 # Parse and format for DB storage
