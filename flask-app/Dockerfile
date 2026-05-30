@@ -1,12 +1,12 @@
 FROM ghcr.io/astral-sh/uv:debian-slim
 
 # Install system dependencies needed for meshcore and its C-extensions (like bleak/dbus-fast)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libdbus-1-dev \
-    libglib2.0-dev \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     build-essential \
+#     libdbus-1-dev \
+#     libglib2.0-dev \
+#     pkg-config \
+#     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
