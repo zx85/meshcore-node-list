@@ -206,7 +206,10 @@ class MeshDevice:
             try:
                 logger.info(f"Connecting to MeshCore device on {self.serial_device}...")
                 self._meshcore = await MeshCore.create_serial(
-                    self.serial_device, 115200, debug=False
+                    # Setting debug=True here will dump raw serial traffic to the logs
+                    self.serial_device,
+                    115200,
+                    debug=True,
                 )
             except Exception as e:
                 logger.error(f"Failed to create serial connection: {e}")

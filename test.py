@@ -1,20 +1,47 @@
 import asyncio
 from meshcore import MeshCore, EventType
 import json
+import os
+
 
 async def main():
-    # Connect to your device
-    meshcore = await MeshCore.create_serial("/dev/ttyACM0")
-    
-    # Get your contacts
-    result = await meshcore.commands.get_contacts()
-    if result.type == EventType.ERROR:
-        print(f"Error getting contacts: {result.payload}")
+    device_path = os.environ.get("MESH_SERIAL_DEVICE", "/dev/ttyACM0")
+    print(f"--- DIAGNOSTIC MODE: Connecting to {device_path} ---")
+
+    # We enable debug=True to see raw serial traffic in the console
+    try:
+        meshcore = await MeshCore.create_serial(device_path, debug=True)
+    except Exception as e:
+        print(f"FAILED TO CONNECT: {e}")
+        print(
+            "Check if another process (like meshcli or a terminal) is using the port."
+        )
         return
-        
-    contacts = result.payload
-    print(f"Found {len(contacts)} contacts")
-    print(json.dumps(contacts, indent=2))
-    await meshcore.disconnect()
+
+    # A "catch-all" handler to see everything the node sends
+    async def universal_handler(event):
+        print(f"\n[EVENT RECEIVED] Type: {event.type}")
+        print(f"Payload: {json.dumps(event.payload, indent=2)}")
+
+    print("Subscribing to all event types...")
+    # Subscribe to the most common events for debugging
+    for e_type in [
+        EventType.CONTACT_MSG_RECV,
+        EventType.ADVERTISEMENT,
+        EventType.NODE_INFO,
+    ]:
+        meshcore.subscribe(e_type, universal_handler)
+
+    print("Listening for 60 seconds... Send a message or advert now.")
+
+    try:
+        # Run for a minute then exit
+        await asyncio.sleep(60)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("Closing connection.")
+        await meshcore.disconnect()
+
 
 asyncio.run(main())
