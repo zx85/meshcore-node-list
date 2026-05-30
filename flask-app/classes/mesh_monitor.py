@@ -203,9 +203,15 @@ class MeshDevice:
         if self._app is None:
             try:
                 logger.info(f"Initializing MeshApp on {self.serial_device}...")
-                self._app = MeshApp(serial_port=self.serial_device)
+                # Try initializing with common argument names
+                try:
+                    self._app = MeshApp(serial_port=self.serial_device)
+                except TypeError:
+                    self._app = MeshApp(port=self.serial_device)
             except Exception as e:
-                logger.error(f"Failed to initialize MeshApp: {e}")
+                logger.error(
+                    f"Failed to initialize MeshApp: {e}\n{traceback.format_exc()}"
+                )
         return self._app
 
     def get_info(self):
