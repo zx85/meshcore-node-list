@@ -191,12 +191,8 @@ class MeshDevice:
         if self._app is None:
             try:
                 logger.info(f"Initializing MeshCore on {self.serial_device}...")
-                # Try initializing with common argument names
-                try:
-                    self._app = MeshCore(serial_port=self.serial_device)
-                except TypeError:
-                    # Some versions use 'port' instead of 'serial_port'
-                    self._app = MeshCore(port=self.serial_device)
+                # Pass the device path as a positional argument
+                self._app = MeshCore(self.serial_device)
             except Exception as e:
                 logger.error(
                     f"Failed to initialize MeshCore: {e}\n{traceback.format_exc()}"
