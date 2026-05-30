@@ -362,8 +362,8 @@ class MqttHandler:
         topic = self.config.get("advert_topic", "mesh/advert")
         self._publish(topic, json.dumps(advert))
 
-    def publish_public_message(self, msg):
-        topic = self.config.get("advert_public", "meshcore/public")
+    def publish_channel_message(self, msg):
+        topic = self.config.get("channels_topic", "meshcore/channels")
         self._publish(topic, json.dumps(msg))
 
 
@@ -435,7 +435,7 @@ class MeshMonitor:
                 text = data.get("text")
 
                 logger.info(
-                    f"Event: Public message on Channel {channel_idx} from {pubkey_prefix}"
+                    f"Event: Channel message on Channel {channel_idx} from {pubkey_prefix}"
                 )
 
                 # Resolve sender name from database
@@ -445,7 +445,7 @@ class MeshMonitor:
                     if node and node.get("adv_name"):
                         sender_display = node["adv_name"]
 
-                public_msg = {
+                channel_msg = {
                     "channel": channel_idx,
                     "sender": sender_display,
                     "sender_pk": pubkey_prefix,
@@ -453,7 +453,7 @@ class MeshMonitor:
                     "timestamp": datetime.now().isoformat(),
                 }
 
-                self.mqtt.publish_public_message(public_msg)
+                self.mqtt.publish_channel_message(channel_msg)
             except Exception as e:
                 logger.error(f"Error in on_channel_message listener: {e}")
 
