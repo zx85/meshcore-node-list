@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, Set, Any
 from datetime import datetime, timedelta
 import traceback
-from meshcore_cli.meshcore_cli import MeshCore, get_contacts, send_cmd
+import meshcore_cli.meshcore_cli as mc_cli  # Import the module as an alias
 from meshcore.serial_cx import SerialConnection
 
 # Configure logging
@@ -196,7 +196,7 @@ class MeshDevice:
                 # First, create the connection object
                 connection = SerialConnection(self.serial_device, baudrate=115200)
                 # Then, pass the connection object to MeshCore
-                self._app = MeshCore(connection)
+                self._app = mc_cli.MeshCore(connection)
             except Exception as e:
                 logger.error(
                     f"Failed to initialize MeshCore: {e}\n{traceback.format_exc()}"
@@ -208,7 +208,7 @@ class MeshDevice:
             app = self._get_app()
             if app and hasattr(app, "state"):
                 # Trigger a refresh of the local info
-                send_cmd(app, "infos")
+                mc_cli.send_cmd(app, "infos")
                 # Return the local node dict from state
                 return getattr(app.state, "self_node", None)
             return None
@@ -217,7 +217,7 @@ class MeshDevice:
         with self.lock:
             app = self._get_app()
             if app:
-                return get_contacts(app)
+                return mc_cli.get_contacts(app)
             return []
 
     def get_contact_info(self, name: str):
@@ -234,7 +234,7 @@ class MeshDevice:
             app = self._get_app()
             if app:
                 # Trigger the sync command
-                send_cmd(app, "sync_msgs")
+                mc_cli.send_cmd(app, "sync_msgs")
                 # Retrieve messages accumulated in the core instance
                 msgs = getattr(app, "messages", [])
                 if msgs:
@@ -247,14 +247,14 @@ class MeshDevice:
         with self.lock:
             app = self._get_app()
             if app:
-                return send_cmd(app, "clock sync")
+                return mc_cli.send_cmd(app, "clock sync")
             return None
 
     def reboot(self):
         with self.lock:
             app = self._get_app()
             if app:
-                return send_cmd(app, "reboot")
+                return mc_cli.send_cmd(app, "reboot")
             return None
 
     def run_meshcli(self, args: list):
