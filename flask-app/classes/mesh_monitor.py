@@ -153,6 +153,18 @@ class DatabaseManager:
             )
             return is_new
 
+    def get_node_by_pubkey_prefix(self, pubkey_prefix: str):
+        """
+        Retrieves a node's data by matching its public_key with a given prefix.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM nodes WHERE public_key LIKE ? || '%' LIMIT 1",
+                (pubkey_prefix,),
+            )
+            return dict(cursor.fetchone()) if cursor.fetchone() else None
+
     def get_all_nodes(self):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -290,6 +302,7 @@ class MqttHandler:
                     self.config["username"], self.config.get("password")
                 )
             self.client.on_connect = self._on_connect
+            self.client.on_disconnect = self._on_disconnect
             self.client.connect(self.config["host"], self.config.get("port", 1883))
             self.client.loop_start()
             logger.info(f"MQTT handler initialized for {self.config['host']}")
@@ -298,27 +311,50 @@ class MqttHandler:
 
     def _on_connect(self, client, userdata, flags, rc):
         self.mqtt_connected = rc == 0
+        if self.mqtt_connected:
+            logger.info("MQTT Connected successfully.")
+        else:
+            logger.error(f"MQTT Connection failed with code {rc}")
+
+    def _on_disconnect(self, client, userdata, rc):
+        self.mqtt_connected = False
+        logger.warning(f"MQTT Disconnected (rc: {rc})")
+
+    def _publish(self, topic, payload, retain=False):
+        """Internal helper to handle publishing and stats"""
+        if not self.mqtt_connected:
+            self.failed_messages += 1
+            logger.warning(f"MQTT not connected. Dropping message for {topic}")
+            return False
+
+        result = self.client.publish(topic, payload, qos=1, retain=retain)
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            self.published_messages += 1
+            self.last_publish_status = (
+                f"Sent to {topic} at {datetime.now().strftime('%H:%M:%S')}"
+            )
+            logger.info(f"MQTT Published: {topic}")
+            return True
+        else:
+            self.failed_messages += 1
+            self.last_publish_status = f"Error {result.rc} on {topic}"
+            logger.error(f"MQTT Publish failed for {topic} (rc: {result.rc})")
+            return False
 
     def send_status(self, status: str, retain: bool = False):
-        if not self.mqtt_connected:
-            return
         topic = self.config.get("status_topic", "mesh/status")
         payload = json.dumps(
             {"status": status, "timestamp": datetime.now().isoformat()}
         )
-        self.client.publish(topic, payload, qos=1, retain=retain)
+        self._publish(topic, payload, retain=retain)
 
     def publish_node(self, node):
-        if not self.mqtt_connected:
-            return
         topic = self.config.get("node_topic", "mesh/nodes/new")
-        self.client.publish(topic, json.dumps(node))
+        self._publish(topic, json.dumps(node))
 
     def publish_message(self, msg):
-        if not self.mqtt_connected:
-            return
         topic = self.config.get("message_topic", "mesh/messages")
-        self.client.publish(topic, json.dumps(msg))
+        self._publish(topic, json.dumps(msg))
 
 
 class MeshMonitor:
@@ -349,15 +385,25 @@ class MeshMonitor:
         async def on_message(event):
             try:
                 data = event.payload
-                logger.info(f"Payload: {json.dumps(data, indent=2)}")
-                logger.info(f"Event: New message from {data.get('pubkey_prefix')}")
+                pubkey_prefix = data.get("pubkey_prefix")
+                logger.info(f"Event: New message from {pubkey_prefix}")
+
+                # Resolve sender name from database
+                sender_display = pubkey_prefix
+                if pubkey_prefix:
+                    node = self.db.get_node_by_pubkey_prefix(pubkey_prefix)
+                    if node and node.get("adv_name"):
+                        sender_display = node["adv_name"]
+                        logger.debug(
+                            f"Resolved sender {pubkey_prefix} to '{sender_display}'"
+                        )
 
                 # Parse and format for DB storage
                 msg_text = data.get("text", "")
                 parsed = parse_mesh_message_advanced(msg_text)
 
                 msg_record = {
-                    "sender": data.get("pubkey_prefix"),
+                    "sender": sender_display,
                     "status": parsed.get("status"),
                     "message": parsed.get("message"),
                     "raw": json.dumps(data),
