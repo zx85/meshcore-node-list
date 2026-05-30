@@ -440,94 +440,54 @@ class MeshMonitor:
             logger.info("Starting node discovery cycle...")
             self.mqtt.send_status("updating_nodes")
 
-            # Replicate get_nodes.sh logic accurately
-            logger.debug("Fetching local node info (infos)...")
-            res = self.device.run_meshcli(["infos"])
-            if res and res.stdout.strip():
-                node_data = self._extract_json(res.stdout)
-                if node_data:
-                    try:
-                        if self.db.update_node(node_data, is_home=True):
-                            logger.info(
-                                f"Updated home node: {node_data.get('name') or node_data.get('adv_name')}"
-                            )
-                        nodes_processed += 1
-                    except Exception as e:
-                        logger.error(f"Error updating home node in DB: {e}")
-                else:
-                    logger.error(
-                        f"Failed to parse local node info JSON. Output: {res.stdout.strip()}"
-                    )
-
-            logger.debug("Fetching list of known nodes (list)...")
-            res = self.device.run_meshcli(["list"])
-            if res:
-                for line in res.stdout.splitlines():
-                    # Replicate: cut -d $'\e' -f1
-                    # We take everything before the first ANSI escape code
-                    # and rstrip only newlines/carriage returns to preserve
-                    # trailing spaces if they exist in the name.
-                    parts = line.split("\x1b")
-                    name = parts[0].rstrip("\r\n")
-                    logger.debug(
-                        f"Processing line: {repr(line)} -> Parsed name: {repr(name)}"
-                    )
-
-                    if (
-                        not name
-                        or "contacts in device" in name
-                        or name.startswith("Error:")
-                    ):
-                        logger.debug(
-                            f"Skipping name '{name}' (empty, error, or header)"
+            logger.debug("Fetching local node info...")
+            node_data = self.device.get_info()
+            if node_data:
+                try:
+                    if self.db.update_node(node_data, is_home=True):
+                        logger.info(
+                            f"Updated home node: {node_data.get('name') or node_data.get('adv_name')}"
                         )
+                    nodes_processed += 1
+                except Exception as e:
+                    logger.error(f"Error updating home node in DB: {e}")
+            else:
+                logger.warning("Failed to retrieve local node info via library.")
+
+            logger.info("Scanning contacts list...")
+            contacts = self.device.get_contacts()
+            if contacts:
+                for name in contacts:
+                    if not name or name.startswith("Error:"):
                         continue
 
                     logger.info(f"Checking node: '{name}'")
+                    # Use library for contact info
+                    node_info = self.device.get_contact_info(name)
 
-                    # Replicate fallback logic from script
-                    node_data = None
-                    info_res = self.device.run_meshcli(["contact_info", name])
-
-                    # Check if "Unknown contact" or failure, then try with a trailing space
-                    if (
-                        not info_res
-                        or "Unknown contact" in info_res.stdout
-                        or "Error:" in info_res.stdout
-                    ):
+                    # Replicate fallback logic if first call fails
+                    if not node_info:
                         fallback_name = f"{name} "
                         logger.debug(
-                            f"Initial fetch for '{name}' failed/empty, retrying with '{fallback_name}'"
+                            f"Direct info fetch failed for '{name}', retrying with '{fallback_name}'"
                         )
-                        info_res = self.device.run_meshcli(
-                            ["contact_info", fallback_name]
-                        )
+                        node_info = self.device.get_contact_info(fallback_name)
 
-                    if (
-                        info_res
-                        and info_res.returncode == 0
-                        and info_res.stdout.strip()
-                        and "Unknown contact" not in info_res.stdout
-                    ):
-                        node_data = self._extract_json(info_res.stdout)
-                    else:
-                        logger.debug(
-                            f"No valid output for '{name}' after all attempts."
-                        )
-
-                    if node_data:
+                    if node_info:
                         try:
-                            if self.db.update_node(node_data):
-                                self.mqtt.publish_node(node_data)
+                            if self.db.update_node(node_info):
+                                self.mqtt.publish_node(node_info)
                                 new_nodes_announced += 1
                                 logger.info(
-                                    f"New node discovered and announced: {node_data.get('adv_name', 'Unknown')} ({node_data.get('public_key', '')[:8]}...)"
+                                    f"New node discovered and announced: {node_info.get('adv_name', 'Unknown')} ({node_info.get('public_key', '')[:8]}...)"
                                 )
                             nodes_processed += 1
                         except Exception as e:
                             logger.error(f"DB Error processing node '{name}': {e}")
                     else:
-                        logger.warning(f"Failed to get data for node {name}")
+                        logger.warning(f"Failed to get valid data for node: '{name}'")
+            else:
+                logger.debug("No contacts found on device.")
 
             self.mqtt.send_status("updated")
             end_time = time.time()
