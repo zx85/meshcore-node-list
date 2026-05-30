@@ -116,12 +116,25 @@ class DatabaseManager:
             cursor = conn.execute("SELECT 1 FROM nodes WHERE public_key = ?", (pk,))
             is_new = cursor.fetchone() is None
 
+            # Use ON CONFLICT to ensure we don't overwrite the 'is_home' flag once set
+            query = """
+                INSERT INTO nodes 
+                    (public_key, name, adv_name, type, adv_lat, adv_lon, out_path_len, last_advert, is_home, last_updated)
+                VALUES 
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(public_key) DO UPDATE SET
+                    name=excluded.name,
+                    adv_name=excluded.adv_name,
+                    type=excluded.type,
+                    adv_lat=excluded.adv_lat,
+                    adv_lon=excluded.adv_lon,
+                    out_path_len=excluded.out_path_len,
+                    last_advert=excluded.last_advert,
+                    is_home=MAX(nodes.is_home, excluded.is_home),
+                    last_updated=CURRENT_TIMESTAMP
+            """
             conn.execute(
-                """
-                INSERT OR REPLACE INTO nodes 
-                (public_key, name, adv_name, type, adv_lat, adv_lon, out_path_len, last_advert, is_home, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
+                query,
                 (
                     pk,
                     node_data.get("name"),
@@ -214,6 +227,7 @@ class MqttHandler:
             self.client.on_connect = self._on_connect
             self.client.connect(self.config["host"], self.config.get("port", 1883))
             self.client.loop_start()
+            logger.info(f"MQTT handler initialized for {self.config['host']}")
         except Exception as e:
             logger.error(f"MQTT Init fail: {e}")
 
@@ -384,11 +398,12 @@ class MeshMonitor:
             res = self.device.run_meshcli(["list"])
             if res:
                 for line in res.stdout.splitlines():
-                    # Replicate: cut -d $'\e' -f1 | sed 's/[[:space:]]*$//'
-                    # Stops at the first escape character to get the clean name
-                    name = line.split("\x1b")[0].strip()
+                    # Replicate: cut -d $'\e' -f1
+                    # We take everything before the first ANSI escape code
+                    # and rstrip only newlines/carriage returns to preserve
+                    # trailing spaces if they exist in the name.
+                    name = line.split("\x1b")[0].rstrip("\r\n")
 
-                    # Replicate: grep -v 'contacts in device' and ignore error lines
                     if (
                         not name
                         or "contacts in device" in name
@@ -396,21 +411,29 @@ class MeshMonitor:
                     ):
                         continue
 
-                    logger.debug(f"Fetching contact info for node: {name}")
+                    logger.debug(f"Discovered name: '{name}'")
 
                     # Replicate fallback logic from script
                     node_data = None
                     info_res = self.device.run_meshcli(["contact_info", name])
 
                     # Check if "Unknown contact" or failure, then try with a trailing space
-                    if not info_res or "Unknown contact" in info_res.stdout:
+                    if (
+                        not info_res
+                        or "Unknown contact" in info_res.stdout
+                        or "Error:" in info_res.stdout
+                    ):
+                        fallback_name = f"{name} "
                         logger.debug(
-                            f"First attempt failed for node {name}, trying with a trailing space"
+                            f"Direct info fetch failed for '{name}', retrying with trailing space..."
                         )
-                        info_res = self.device.run_meshcli(["contact_info", f"{name} "])
+                        info_res = self.device.run_meshcli(
+                            ["contact_info", fallback_name]
+                        )
 
                     if (
                         info_res
+                        and info_res.returncode == 0
                         and info_res.stdout.strip()
                         and "Unknown contact" not in info_res.stdout
                     ):
@@ -426,7 +449,7 @@ class MeshMonitor:
                                 )
                             nodes_processed += 1
                         except Exception as e:
-                            logger.error(f"Error processing node '{name}': {e}")
+                            logger.error(f"DB Error processing node '{name}': {e}")
                     else:
                         logger.warning(f"Failed to get data for node {name}")
 
