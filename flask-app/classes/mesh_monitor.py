@@ -163,7 +163,7 @@ class DatabaseManager:
                 "SELECT * FROM nodes WHERE public_key LIKE ? || '%' LIMIT 1",
                 (pubkey_prefix,),
             )
-            logging.info('Did the select query.. is it the next line?')
+            logging.info("Did the select query.. is it the next line?")
             row = cursor.fetchone()
             return dict(row) if row else None
 
@@ -362,6 +362,11 @@ class MqttHandler:
         topic = self.config.get("advert_topic", "mesh/advert")
         self._publish(topic, json.dumps(advert))
 
+    def publish_public_message(self, msg):
+        topic = self.config.get("advert_public", "meshcore/public")
+        self._publish(topic, json.dumps(msg))
+
+
 class MeshMonitor:
     def __init__(self, mqtt_config: Dict[str, Any], db_path: str, _unused: str):
         # Clean up path to handle potential literal quotes from docker env
@@ -396,7 +401,7 @@ class MeshMonitor:
                 # Resolve sender name from database
                 sender_display = pubkey_prefix
                 if pubkey_prefix:
-                    logger.info(f'Looking for {pubkey_prefix} in the database')
+                    logger.info(f"Looking for {pubkey_prefix} in the database")
                     node = self.db.get_node_by_pubkey_prefix(pubkey_prefix)
                     if node and node.get("adv_name"):
                         sender_display = node["adv_name"]
@@ -422,27 +427,58 @@ class MeshMonitor:
             except Exception as e:
                 logger.error(f"Error in on_message listener: {e}")
 
+        async def on_channel_message(event):
+            try:
+                data = event.payload
+                channel_idx = data.get("channel_idx")
+                pubkey_prefix = data.get("pubkey_prefix")
+                text = data.get("text")
+
+                logger.info(
+                    f"Event: Public message on Channel {channel_idx} from {pubkey_prefix}"
+                )
+
+                # Resolve sender name from database
+                sender_display = pubkey_prefix
+                if pubkey_prefix:
+                    node = self.db.get_node_by_pubkey_prefix(pubkey_prefix)
+                    if node and node.get("adv_name"):
+                        sender_display = node["adv_name"]
+
+                public_msg = {
+                    "channel": channel_idx,
+                    "sender": sender_display,
+                    "sender_pk": pubkey_prefix,
+                    "text": text,
+                    "timestamp": datetime.now().isoformat(),
+                }
+
+                self.mqtt.publish_public_message(public_msg)
+            except Exception as e:
+                logger.error(f"Error in on_channel_message listener: {e}")
+
         async def on_advert(event):
             try:
                 node_info = event.payload
-                logger.info(
-                    f"Event: Advert - {json.dumps(node_info, indent=2)}"
-                )
-                if node_info.get('public_key'):
-                    node = self.db.get_node_by_pubkey_prefix(node_info.get('public_key')[:12])
+                logger.info(f"Event: Advert - {json.dumps(node_info, indent=2)}")
+                if node_info.get("public_key"):
+                    node = self.db.get_node_by_pubkey_prefix(
+                        node_info.get("public_key")[:12]
+                    )
                     if node and node.get("adv_name"):
-                        sender=node.get('adv_name')
+                        sender = node.get("adv_name")
                     else:
-                        sender=node_info.get('public_key')[:12]
+                        sender = node_info.get("public_key")[:12]
                 else:
-                    sender='unknown'
-                self.mqtt.publish_advert({'sender': sender})
+                    sender = "unknown"
+                self.mqtt.publish_advert({"sender": sender})
             except Exception as e:
                 logger.error(f"Error in on_advert listener: {e}")
 
         # Hook into the MeshCore event system
         self.device.subscribe(EventType.CONTACT_MSG_RECV, on_message)
         self.device.subscribe(EventType.ADVERTISEMENT, on_advert)
+        self.device.subscribe(EventType.CHANNEL_MSG_RECV, on_channel_message)
 
         # Optional: Listen for the 'waiting' signal to confirm the hardware-to-software flow
         async def on_waiting(event):
