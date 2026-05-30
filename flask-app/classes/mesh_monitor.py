@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Dict, Set, Any
 from datetime import datetime, timedelta
 import traceback
-import meshcore_cli.meshcore_cli as mc_cli  # Import the module as an alias
-from meshcore.serial_cx import SerialConnection
+import asyncio
+from meshcore.meshcore import MeshCore
+from meshcore.connection_manager import EventType
 
 # Configure logging
 logging.basicConfig(
@@ -184,78 +185,96 @@ class MeshDevice:
     def __init__(self, serial_device: str):
         self.serial_device = serial_device
         self.lock = threading.Lock()
-        self._app = None
+        self._meshcore = None
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(target=self._run_event_loop, daemon=True)
+        self._loop_thread.start()
 
-    def _get_app(self):
-        """Lazy initialization of the MeshCore library"""
-        if self._app is None:
+    def _run_event_loop(self):
+        """Runs the dedicated asyncio event loop for meshcore."""
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def _run_async(self, coro):
+        """Helper to run async coroutines from sync threads."""
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
+
+    async def _ensure_connected(self):
+        """Initializes the MeshCore serial connection if it hasn't been started."""
+        if self._meshcore is None:
             try:
-                logger.info(
-                    f"Initializing SerialConnection for {self.serial_device}..."
+                logger.info(f"Connecting to MeshCore device on {self.serial_device}...")
+                self._meshcore = await MeshCore.create_serial(
+                    self.serial_device, 115200, debug=False
                 )
-                # First, create the connection object
-                connection = SerialConnection(self.serial_device, baudrate=115200)
-                # Then, pass the connection object to MeshCore
-                self._app = mc_cli.MeshCore(connection)
             except Exception as e:
-                logger.error(
-                    f"Failed to initialize MeshCore: {e}\n{traceback.format_exc()}"
-                )
-        return self._app
+                logger.error(f"Failed to create serial connection: {e}")
+                raise
+
+    async def _get_info_coro(self):
+        await self._ensure_connected()
+        result = await self._meshcore.commands.get_device_info()
+        if result.type != EventType.ERROR:
+            return result.payload
+        logger.error(f"get_info failed: {result.payload}")
+        return None
 
     def get_info(self):
         with self.lock:
-            app = self._get_app()
-            if app and hasattr(app, "state"):
-                # Trigger a refresh of the local info
-                mc_cli.send_cmd(app, "infos")
-                # Return the local node dict from state
-                return getattr(app.state, "self_node", None)
-            return None
+            return self._run_async(self._get_info_coro())
+
+    async def _get_contacts_coro(self):
+        await self._ensure_connected()
+        result = await self._meshcore.commands.get_contacts()
+        if result.type != EventType.ERROR:
+            return result.payload  # Usually a list of contact names/identifiers
+        logger.error(f"get_contacts failed: {result.payload}")
+        return []
 
     def get_contacts(self):
         with self.lock:
-            app = self._get_app()
-            if app:
-                return mc_cli.get_contacts(app)
-            return []
+            return self._run_async(self._get_contacts_coro())
+
+    async def _get_contact_info_coro(self, name: str):
+        await self._ensure_connected()
+        result = await self._meshcore.commands.get_contact_info(name)
+        if result.type != EventType.ERROR:
+            return result.payload
+        return None
 
     def get_contact_info(self, name: str):
         with self.lock:
-            app = self._get_app()
-            if app and hasattr(app, "state"):
-                # Contacts are stored in a dictionary in the state
-                contacts = getattr(app.state, "contacts", {})
-                return contacts.get(name)
-            return None
+            return self._run_async(self._get_contact_info_coro(name))
+
+    async def _sync_msgs_coro(self):
+        await self._ensure_connected()
+        result = await self._meshcore.commands.sync_messages()
+        if result.type != EventType.ERROR:
+            return result.payload
+        return []
 
     def sync_msgs(self):
         with self.lock:
-            app = self._get_app()
-            if app:
-                # Trigger the sync command
-                mc_cli.send_cmd(app, "sync_msgs")
-                # Retrieve messages accumulated in the core instance
-                msgs = getattr(app, "messages", [])
-                if msgs:
-                    # Clear the internal list after "syncing"
-                    app.messages = []
-                return msgs
-            return []
+            return self._run_async(self._sync_msgs_coro())
+
+    async def _sync_clock_coro(self):
+        await self._ensure_connected()
+        result = await self._meshcore.commands.sync_clock()
+        return result.type != EventType.ERROR
 
     def sync_clock(self):
         with self.lock:
-            app = self._get_app()
-            if app:
-                return mc_cli.send_cmd(app, "clock sync")
-            return None
+            return self._run_async(self._sync_clock_coro())
+
+    async def _reboot_coro(self):
+        await self._ensure_connected()
+        result = await self._meshcore.commands.reboot()
+        return result.type != EventType.ERROR
 
     def reboot(self):
         with self.lock:
-            app = self._get_app()
-            if app:
-                return mc_cli.send_cmd(app, "reboot")
-            return None
+            return self._run_async(self._reboot_coro())
 
     def run_meshcli(self, args: list):
         """Legacy support for direct shell commands if needed, though mostly deprecated now"""
