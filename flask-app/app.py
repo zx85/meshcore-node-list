@@ -13,10 +13,6 @@ from dotenv import load_dotenv
 from includes.feed import parse_feed
 from classes.mesh_monitor import MeshMonitor, DatabaseManager
 
-# Load environment variables from .env file
-load_dotenv()
-
-
 # Configure application
 app = Flask(__name__, static_folder="static")
 app.secret_key = os.environ.get("SECRET_KEY", "fallback-secret-key")
@@ -90,10 +86,12 @@ def start_background_monitor():
 
     # Check if MQTT is configured
     mqtt_host = os.environ.get("MQTT_HOST")
-    if not mqtt_host:
-        logger.warning("MQTT_HOST not set in .env file - MQTT monitoring disabled")
-        monitor_started = True
-        return
+    if mqtt_host:
+        logger.info(f"MQTT configuration found for host: {mqtt_host}")
+    else:
+        logger.warning(
+            "MQTT_HOST not set - Background workers will run without MQTT publishing"
+        )
 
     # MQTT configuration from environment variables
     mqtt_config = {

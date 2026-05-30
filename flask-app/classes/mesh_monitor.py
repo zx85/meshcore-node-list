@@ -303,6 +303,10 @@ class MqttHandler:
 
     def setup(self):
         try:
+            if not self.config.get("host"):
+                logger.info("No MQTT host provided; MQTT publishing is disabled.")
+                return
+
             if self.config.get("username"):
                 self.client.username_pw_set(
                     self.config["username"], self.config.get("password")
@@ -318,6 +322,8 @@ class MqttHandler:
         self.mqtt_connected = rc == 0
 
     def send_status(self, status: str, retain: bool = False):
+        if not self.mqtt_connected:
+            return
         topic = self.config.get("status_topic", "mesh/status")
         payload = json.dumps(
             {"status": status, "timestamp": datetime.now().isoformat()}
@@ -325,10 +331,14 @@ class MqttHandler:
         self.client.publish(topic, payload, qos=1, retain=retain)
 
     def publish_node(self, node):
+        if not self.mqtt_connected:
+            return
         topic = self.config.get("node_topic", "mesh/nodes/new")
         self.client.publish(topic, json.dumps(node))
 
     def publish_message(self, msg):
+        if not self.mqtt_connected:
+            return
         topic = self.config.get("message_topic", "mesh/messages")
         self.client.publish(topic, json.dumps(msg))
 
