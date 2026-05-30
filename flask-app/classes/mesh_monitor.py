@@ -194,7 +194,7 @@ class MeshDevice:
                     f"Initializing SerialConnection for {self.serial_device}..."
                 )
                 # First, create the connection object
-                connection = SerialConnection(self.serial_device)
+                connection = SerialConnection(port=self.serial_device, baudrate=115200)
                 # Then, pass the connection object to MeshCore
                 self._app = MeshCore(connection)
             except Exception as e:
