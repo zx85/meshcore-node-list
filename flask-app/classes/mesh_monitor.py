@@ -209,8 +209,11 @@ class MeshDevice:
                     # Setting debug=True here will dump raw serial traffic to the logs
                     self.serial_device,
                     115200,
-                    debug=True,
+                    debug=False,
                 )
+                # Enable auto-fetching of messages as requested
+                logger.info("Enabling auto message fetching...")
+                await self._meshcore.start_auto_message_fetching()
             except Exception as e:
                 logger.error(f"Failed to create serial connection: {e}")
                 raise
@@ -336,6 +339,9 @@ class MeshMonitor:
         if self.serial_enabled:
             self._setup_event_listeners()
 
+        async def on_waiting(event):
+            logger.info("Node reports messages are waiting in buffer...")
+
     def _setup_event_listeners(self):
         """Register real-time listeners for mesh events"""
         logger.info("Setting up real-time mesh event listeners...")
@@ -380,6 +386,12 @@ class MeshMonitor:
         # Hook into the MeshCore event system
         self.device.subscribe(EventType.CONTACT_MSG_RECV, on_message)
         self.device.subscribe(EventType.ADVERTISEMENT, on_advert)
+
+        # Optional: Listen for the 'waiting' signal to confirm the hardware-to-software flow
+        async def on_waiting(event):
+            logger.debug("Hardware notification: Messages waiting to be fetched.")
+
+        self.device.subscribe(EventType.MESSAGES_WAITING, on_waiting)
 
     def monitor_loop(self, _unused_cb, interval: int = 30):
         logger.info(f"Monitor loop called. Serial enabled: {self.serial_enabled}")

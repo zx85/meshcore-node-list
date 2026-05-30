@@ -18,6 +18,10 @@ async def main():
         )
         return
 
+    # Enable auto-fetching of messages so that CONTACT_MSG_RECV triggers
+    print("Enabling auto message fetching...")
+    await meshcore.start_auto_message_fetching()
+
     # A "catch-all" handler to see everything the node sends
     async def universal_handler(event):
         print(f"\n[EVENT RECEIVED] Type: {event.type}")
