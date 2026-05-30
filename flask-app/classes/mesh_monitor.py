@@ -163,7 +163,6 @@ class DatabaseManager:
                 "SELECT * FROM nodes WHERE public_key LIKE ? || '%' LIMIT 1",
                 (pubkey_prefix,),
             )
-            logging.info("Did the select query.. is it the next line?")
             row = cursor.fetchone()
             return dict(row) if row else None
 
