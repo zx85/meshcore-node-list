@@ -9,7 +9,7 @@ import re
 import threading
 from pathlib import Path
 from typing import Dict, Set, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(
@@ -236,15 +236,44 @@ class MeshMonitor:
             time.sleep(1)
 
     def _reboot_worker(self):
-        """Replicates the 6-hour reboot cycle from reboot_node.sh"""
-        # 6 hours in seconds
-        reboot_interval = 6 * 60 * 60
-
-        # Wait at least 1 hour after app start before the first reboot
-        # to ensure we don't reboot-loop if the app restarts frequently
-        time.sleep(3600)
+        """Replicates the specific scheduled reboot times from crontab (04:32, 10:32, 16:32, 22:32)"""
+        # Brief initial delay to let the application settle
+        time.sleep(60)
 
         while not self._stop_event.is_set():
+            now = datetime.now()
+            scheduled_hours = [4, 10, 16, 22]
+            target_time = None
+
+            # Find the next scheduled reboot time for today
+            for hour in scheduled_hours:
+                candidate = now.replace(hour=hour, minute=32, second=0, microsecond=0)
+                if candidate > now:
+                    target_time = candidate
+                    break
+
+            # If no more reboots today, target 04:32 tomorrow
+            if not target_time:
+                target_time = (now + timedelta(days=1)).replace(
+                    hour=4, minute=32, second=0, microsecond=0
+                )
+
+            wait_seconds = int((target_time - now).total_seconds())
+            logger.info(
+                f"Next reboot scheduled for {target_time.strftime('%Y-%m-%d %H:%M:%S')}. Sleeping for {wait_seconds}s."
+            )
+
+            # Interruptible sleep until target time
+            stop_sleeping = False
+            for _ in range(wait_seconds):
+                if self._stop_event.is_set():
+                    stop_sleeping = True
+                    break
+                time.sleep(1)
+
+            if stop_sleeping:
+                break
+
             logger.info("Starting scheduled node reboot...")
 
             # 1. Send reboot command (reboot\x0D)
@@ -255,12 +284,7 @@ class MeshMonitor:
                 # 3. Sync the clock
                 logger.info("Syncing node clock after reboot...")
                 self.device.run_meshcli(["clock", "sync"])
-
-            # Wait 6 hours for next cycle (responsive to stop event)
-            for _ in range(reboot_interval):
-                if self._stop_event.is_set():
-                    break
-                time.sleep(1)
+                logger.info("Node clock synced. Reboot cycle complete.")
 
     def _msg_worker(self):
         while not self._stop_event.is_set():
@@ -270,21 +294,36 @@ class MeshMonitor:
                     parsed = parse_mesh_message_advanced(line)
                     if parsed["message"]:
                         self.mqtt.publish_message(parsed)
+                        logger.debug(f"Published message: {parsed['clean']}")
             time.sleep(5)
 
     def _discovery_worker(self, interval):
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         while not self._stop_event.is_set():
+            start_time = time.time()
+            nodes_processed = 0
+            new_nodes_announced = 0
+
+            logger.info("Starting node discovery cycle...")
             self.mqtt.send_status("updating_nodes")
 
             # Replicate get_nodes.sh
+            logger.debug("Fetching local node info (infos)...")
             res = self.device.run_meshcli(["infos"])
             if res and res.returncode == 0:
                 try:
-                    self.db.update_node(json.loads(res.stdout), is_home=True)
-                except:
-                    pass
+                    node_data = json.loads(res.stdout)
+                    if self.db.update_node(node_data, is_home=True):
+                        logger.info(
+                            f"Updated home node: {node_data.get('name') or node_data.get('adv_name')}"
+                        )
+                    nodes_processed += 1
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse local node info JSON: {e}")
+                except Exception as e:
+                    logger.error(f"Error updating home node: {e}")
 
+            logger.debug("Fetching list of known nodes (list)...")
             res = self.device.run_meshcli(["list"])
             if res:
                 for line in res.stdout.splitlines():
@@ -292,17 +331,43 @@ class MeshMonitor:
                     if not name or "contacts" in name:
                         continue
 
+                    logger.debug(f"Fetching contact info for node: {name}")
                     info = self.device.run_meshcli(["contact_info", name])
                     if info and info.returncode == 0:
                         try:
                             data = json.loads(info.stdout)
                             if self.db.update_node(data):
                                 self.mqtt.publish_node(data)
-                        except:
-                            pass
+                                new_nodes_announced += 1
+                                logger.info(
+                                    f"New node discovered and announced: {data.get('adv_name', 'Unknown')} ({data.get('public_key', '')[:8]}...)"
+                                )
+                            nodes_processed += 1
+                        except json.JSONDecodeError as e:
+                            logger.warning(
+                                f"Failed to parse contact info JSON for '{name}': {e}"
+                            )
+                        except Exception as e:
+                            logger.error(f"Error processing node '{name}': {e}")
 
             self.mqtt.send_status("updated")
-            time.sleep(max(120, interval))
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.info(
+                f"Node discovery cycle completed. Processed {nodes_processed} nodes, announced {new_nodes_announced} new nodes in {duration:.2f} seconds."
+            )
+
+            # Ensure we sleep for at least the interval, accounting for execution time
+            sleep_duration = max(120, interval) - duration
+            if sleep_duration > 0:
+                logger.debug(
+                    f"Discovery worker sleeping for {sleep_duration:.2f} seconds."
+                )
+                time.sleep(sleep_duration)
+            else:
+                logger.warning(
+                    f"Node discovery took longer than the interval ({duration:.2f}s vs {interval}s). Skipping sleep."
+                )
 
     def get_connection_stats(self):
         return {
