@@ -349,14 +349,14 @@ class MeshMonitor:
         async def on_message(event):
             try:
                 data = event.payload
-                logger.info(f"Event: New message from {data.get('pubkey_prefix')}")
+                logger.info(f"Event: New message from {data.get('adv_name')}")
 
                 # Parse and format for DB storage
                 msg_text = data.get("text", "")
                 parsed = parse_mesh_message_advanced(msg_text)
 
                 msg_record = {
-                    "sender": data.get("pubkey_prefix"),
+                    "sender": data.get("adv_name"),
                     "status": parsed.get("status"),
                     "message": parsed.get("message"),
                     "raw": json.dumps(data),
