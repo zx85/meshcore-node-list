@@ -95,6 +95,17 @@ class DatabaseManager:
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sender TEXT,
+                    status TEXT,
+                    message TEXT,
+                    raw TEXT,
+                    clean TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
     def update_node(self, node_data: Dict, is_home: bool = False):
         with sqlite3.connect(self.db_path) as conn:
@@ -133,6 +144,22 @@ class DatabaseManager:
                 "SELECT * FROM nodes ORDER BY is_home DESC, last_advert DESC"
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def store_message(self, msg_data: Dict):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO messages (sender, status, message, raw, clean)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (
+                    msg_data.get("sender"),
+                    msg_data.get("status"),
+                    msg_data.get("message"),
+                    msg_data.get("raw"),
+                    msg_data.get("clean"),
+                ),
+            )
 
 
 class MeshDevice:
@@ -305,6 +332,7 @@ class MeshMonitor:
                 for line in res.stdout.splitlines():
                     parsed = parse_mesh_message_advanced(line)
                     if parsed["message"]:
+                        self.db.store_message(parsed)
                         self.mqtt.publish_message(parsed)
                         logger.debug(f"Published message: {parsed['clean']}")
             time.sleep(5)
