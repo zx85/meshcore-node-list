@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -187,10 +187,20 @@ class MeshDevice:
             return None
         with self.lock:
             cmd = ["uv", "run", "meshcli", "-s", self.serial_device] + args
+            logger.debug(f"Running command: {' '.join(cmd)}")
             try:
-                return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if result.returncode != 0:
+                    logger.debug(
+                        f"Command failed (RC {result.returncode}). STDERR: {result.stderr.strip()}"
+                    )
+                if result.stdout:
+                    logger.debug(
+                        f"Raw output (first 100 chars): {result.stdout.strip()[:100]}"
+                    )
+                return result
             except Exception as e:
-                logger.error(f"MeshCLI error: {e}")
+                logger.error(f"MeshCLI execution error: {e}")
                 return None
 
     def write_raw(self, data: bytes):
@@ -284,6 +294,7 @@ class MeshMonitor:
     def _extract_json(self, text):
         """Extract JSON object from potentially noisy CLI output"""
         if not text:
+            logger.debug("JSON extraction failed: text is empty")
             return None
         try:
             # Look for the first '{' and last '}' to isolate JSON
@@ -291,9 +302,10 @@ class MeshMonitor:
             end = text.rfind("}")
             if start != -1 and end != -1:
                 json_str = text[start : end + 1]
+                logger.debug(f"Found JSON candidate: {json_str[:50]}...")
                 return json.loads(json_str)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"JSON extraction failed for text: {repr(text)}. Error: {e}")
         return None
 
     def _reboot_worker(self):
@@ -402,16 +414,23 @@ class MeshMonitor:
                     # We take everything before the first ANSI escape code
                     # and rstrip only newlines/carriage returns to preserve
                     # trailing spaces if they exist in the name.
-                    name = line.split("\x1b")[0].rstrip("\r\n")
+                    parts = line.split("\x1b")
+                    name = parts[0].rstrip("\r\n")
+                    logger.debug(
+                        f"Processing line: {repr(line)} -> Parsed name: {repr(name)}"
+                    )
 
                     if (
                         not name
                         or "contacts in device" in name
                         or name.startswith("Error:")
                     ):
+                        logger.debug(
+                            f"Skipping name '{name}' (empty, error, or header)"
+                        )
                         continue
 
-                    logger.debug(f"Discovered name: '{name}'")
+                    logger.info(f"Checking node: '{name}'")
 
                     # Replicate fallback logic from script
                     node_data = None
@@ -425,7 +444,7 @@ class MeshMonitor:
                     ):
                         fallback_name = f"{name} "
                         logger.debug(
-                            f"Direct info fetch failed for '{name}', retrying with trailing space..."
+                            f"Initial fetch for '{name}' failed/empty, retrying with '{fallback_name}'"
                         )
                         info_res = self.device.run_meshcli(
                             ["contact_info", fallback_name]
@@ -438,6 +457,10 @@ class MeshMonitor:
                         and "Unknown contact" not in info_res.stdout
                     ):
                         node_data = self._extract_json(info_res.stdout)
+                    else:
+                        logger.debug(
+                            f"No valid output for '{name}' after all attempts."
+                        )
 
                     if node_data:
                         try:
