@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Dict, Set, Any
 from datetime import datetime, timedelta
 import traceback
-
-from meshcore_cli.meshcore_cli import MeshCore
+from meshcore.meshcore import MeshCore
+from meshcore.serial_cx import SerialConnection
 
 # Configure logging
 logging.basicConfig(
@@ -190,9 +190,13 @@ class MeshDevice:
         """Lazy initialization of the MeshCore library"""
         if self._app is None:
             try:
-                logger.info(f"Initializing MeshCore on {self.serial_device}...")
-                # Pass the device path as a positional argument
-                self._app = MeshCore(self.serial_device)
+                logger.info(
+                    f"Initializing SerialConnection for {self.serial_device}..."
+                )
+                # First, create the connection object
+                connection = SerialConnection(self.serial_device)
+                # Then, pass the connection object to MeshCore
+                self._app = MeshCore(connection)
             except Exception as e:
                 logger.error(
                     f"Failed to initialize MeshCore: {e}\n{traceback.format_exc()}"
