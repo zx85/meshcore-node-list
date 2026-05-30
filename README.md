@@ -27,19 +27,19 @@ Version: see [flask-app/version.txt](flask-app/version.txt)
 
 ## How it works (high level)
 
-1. A local process (or the included script [scripts/get_nodes.sh](scripts/get_nodes.sh)) collects node JSON from the mesh CLI into `node_data/nodes.json`.
-2. The Flask route `/` loads the JSON (via `load_entries` in [flask-app/app.py](flask-app/app.py)) and calls [`includes.feed.parse_feed`](flask-app/includes/feed.py) to build the table shown by [flask-app/templates/index.html.j2](flask-app/templates/index.html.j2).
-3. If MQTT is configured, [`classes.mesh_monitor.MeshMonitor`](flask-app/classes/mesh_monitor.py) runs in a background thread started by [`start_background_monitor`](flask-app/app.py). It:
-4. A "View Map" button opens a modal dialog displaying all nodes with location data on a Google Map. This requires a `GOOGLE_MAPS_API_KEY`.
+1. The background monitor (or the included script scripts/get_nodes.sh) collects node information and persists it to a SQLite database (`node_data/nodes.db`).
+2. The Flask route `/` queries the database (via `load_entries` in `app.py`) and calls `includes.feed.parse_feed` to build the table shown by `index.html.j2`.
+3. If MQTT or Serial is enabled, `classes.mesh_monitor.MeshMonitor` runs in a background thread. It:
    - Detects newly seen nodes and publishes announcements to the configured MQTT topic.
-   - Polls the serial device for incoming messages (via `meshcli sync_msgs`), parses them and publishes structured MQTT messages.
+   - Listens to the serial device for real-time mesh events, parses them, and publishes structured MQTT messages.
+4. A "View Map" button opens a modal dialog displaying all nodes with location data on a Google Map. This requires a `GOOGLE_MAPS_API_KEY`.
 
 ## Configurable settings
 
 You can configure behavior via environment variables (set them in a `.env` file or in your container):
 
 - App / file locations
-  - NODE_DATA_FILE — path to nodes JSON (default `/app/node_data/nodes.json`)  
+  - NODE_DATA_FILE — path to the SQLite database (default `/app/node_data/nodes.db`)  
   - MESSAGE_DATA_FILE — path to message dump (default `/app/node_data/node_messages.txt`)
   - Version file used in the footer: [flask-app/version.txt](flask-app/version.txt)
   - GOOGLE_MAPS_API_KEY — Your Google Maps JavaScript API key. If not provided, the map feature will be disabled.
@@ -68,8 +68,8 @@ The container configuration in [docker-compose.yml](docker-compose.yml) maps the
 This should be set up as a cron job so that the node list is periodically picked up
 
 ### Flask app
-- Locally (simple): Start the Flask app (you may need to assign environment variables to suit)
-  - [cd flask-app; uv sync && uv run python app.py](flask-app/app.py)
+- Locally (Native Python): Start the Flask app using `uv` (ensure environment variables are set in `.env` or exported)
+  - `cd flask-app; uv sync && uv run python app.py`
 
 - With Docker Compose:
   - Build and run the service: `docker-compose up --build`
