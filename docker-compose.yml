@@ -9,9 +9,9 @@ services:
     environment:
       - SECRET_KEY=this-key-is-secret-then
       - MESH_SERIAL_DEVICE=/dev/ttyACM0
-      - MESH_SERIAL_ENABLED="true"
-      - NODE_DATA_FILE="/app/node_data/nodes.db"
-      - MESSAGE_DATA_FILE="/app/node_data/node_messages.txt"
+      - MESH_SERIAL_ENABLED=true
+      - NODE_DATA_FILE=/app/node_data/nodes.db
+      - MESSAGE_DATA_FILE=/app/node_data/node_messages.txt
     # If you set MESH_SERIAL_ENABLED to false
     # You'll need to remove the device definition below
     devices:

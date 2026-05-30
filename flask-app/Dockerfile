@@ -1,11 +1,14 @@
 FROM ghcr.io/astral-sh/uv:alpine
 WORKDIR /app
 
+# Install build dependencies for C-extensions on Alpine
+RUN apk add --no-cache gcc musl-dev python3-dev libffi-dev
+
 # Copy application
 COPY . .
 
 # Install system dependencies
-RUN uv sync
+RUN uv sync --frozen
 
 # Set environment variables
 ENV FLASK_APP=app.py
