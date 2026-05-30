@@ -236,6 +236,10 @@ class MeshDevice:
         with self.lock:
             return self._run_async(self._get_contacts_coro())
 
+    def subscribe(self, event_type, callback):
+        with self.lock:
+            return self._run_async(self._subscribe_coro(event_type, callback))
+
     async def _sync_clock_coro(self):
         await self._ensure_connected()
         result = await self._meshcore.commands.sync_clock()
@@ -253,6 +257,10 @@ class MeshDevice:
     def reboot(self):
         with self.lock:
             return self._run_async(self._reboot_coro())
+
+    async def _subscribe_coro(self, event_type, callback):
+        await self._ensure_connected()
+        return self._meshcore.subscribe(event_type, callback)
 
 
 class MqttHandler:
@@ -321,6 +329,54 @@ class MeshMonitor:
         serial_env = os.environ.get("MESH_SERIAL_ENABLED", "true").strip('"').lower()
         self.serial_enabled = serial_env == "true"
         self._stop_event = threading.Event()
+
+        if self.serial_enabled:
+            self._setup_event_listeners()
+
+    def _setup_event_listeners(self):
+        """Register real-time listeners for mesh events"""
+        logger.info("Setting up real-time mesh event listeners...")
+
+        async def on_message(event):
+            try:
+                data = event.payload
+                logger.info(f"Event: New message from {data.get('pubkey_prefix')}")
+
+                # Parse and format for DB storage
+                msg_text = data.get("text", "")
+                parsed = parse_mesh_message_advanced(msg_text)
+
+                msg_record = {
+                    "sender": data.get("pubkey_prefix"),
+                    "status": parsed.get("status"),
+                    "message": parsed.get("message"),
+                    "raw": json.dumps(data),
+                    "clean": parsed.get("clean"),
+                }
+
+                # Store in SQLite and publish via MQTT
+                self.db.store_message(msg_record)
+                self.mqtt.publish_message(msg_record)
+            except Exception as e:
+                logger.error(f"Error in on_message listener: {e}")
+
+        async def on_advert(event):
+            try:
+                node_info = event.payload
+                logger.debug(
+                    f"Event: Advert from {node_info.get('adv_name', 'Unknown')}"
+                )
+
+                # Update node record in database
+                if self.db.update_node(node_info):
+                    # If this is a new discovery, publish to MQTT
+                    self.mqtt.publish_node(node_info)
+            except Exception as e:
+                logger.error(f"Error in on_advert listener: {e}")
+
+        # Hook into the MeshCore event system
+        self.device.subscribe(EventType.CONTACT_MSG_RECV, on_message)
+        self.device.subscribe(EventType.ADVERTISEMENT, on_advert)
 
     def monitor_loop(self, _unused_cb, interval: int = 30):
         logger.info(f"Monitor loop called. Serial enabled: {self.serial_enabled}")
@@ -420,7 +476,7 @@ class MeshMonitor:
             logger.info("Scanning contacts list...")
             contacts = self.device.get_contacts()
             if contacts:
-                for idx,node_info in contacts.items():
+                for idx, node_info in contacts.items():
                     try:
                         if self.db.update_node(node_info):
                             self.mqtt.publish_node(node_info)
