@@ -15,8 +15,10 @@ try:
     from meshcore_cli.app import MeshApp
 
     HAS_MESH_LIB = True
-except ImportError:
+    LIB_ERROR = None
+except ImportError as e:
     HAS_MESH_LIB = False
+    LIB_ERROR = str(e)
 
 # Configure logging
 logging.basicConfig(
@@ -194,7 +196,7 @@ class MeshDevice:
         """Lazy initialization of the MeshApp library"""
         if not HAS_MESH_LIB:
             logger.error(
-                "meshcore_cli library not found. Cannot communicate with device."
+                f"meshcore_cli library not found ({LIB_ERROR}). Cannot communicate with device."
             )
             return None
 

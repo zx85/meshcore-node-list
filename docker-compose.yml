@@ -5,6 +5,7 @@ services:
       context: ./flask-app
     ports:
       - "5050:5050"
+    command: uv run python app.py
     environment:
       - SECRET_KEY=this-key-is-secret-then
       - MESH_SERIAL_DEVICE=/dev/ttyACM0
