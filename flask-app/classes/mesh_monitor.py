@@ -236,28 +236,6 @@ class MeshDevice:
         with self.lock:
             return self._run_async(self._get_contacts_coro())
 
-    async def _get_contact_info_coro(self, name: str):
-        await self._ensure_connected()
-        result = await self._meshcore.commands.get_contact_info(name)
-        if result.type != EventType.ERROR:
-            return result.payload
-        return None
-
-    def get_contact_info(self, name: str):
-        with self.lock:
-            return self._run_async(self._get_contact_info_coro(name))
-
-    async def _sync_msgs_coro(self):
-        await self._ensure_connected()
-        result = await self._meshcore.commands.sync_messages()
-        if result.type != EventType.ERROR:
-            return result.payload
-        return []
-
-    def sync_msgs(self):
-        with self.lock:
-            return self._run_async(self._sync_msgs_coro())
-
     async def _sync_clock_coro(self):
         await self._ensure_connected()
         result = await self._meshcore.commands.sync_clock()
@@ -351,7 +329,6 @@ class MeshMonitor:
             return
 
         logger.info("Starting background worker threads...")
-        # threading.Thread(target=self._msg_worker, daemon=True).start()
         threading.Thread(
             target=self._discovery_worker, args=(interval,), daemon=True
         ).start()
@@ -417,18 +394,6 @@ class MeshMonitor:
         except Exception as e:
             logger.error(f"Reboot worker crashed: {e}")
 
-    def _msg_worker(self):
-        logger.info("Message polling worker thread started.")
-        while not self._stop_event.is_set():
-            msgs = self.device.sync_msgs()
-            for msg_text in msgs:
-                parsed = parse_mesh_message_advanced(msg_text)
-                if parsed["message"]:
-                    self.db.store_message(parsed)
-                    self.mqtt.publish_message(parsed)
-                    logger.debug(f"Published message: {parsed['clean']}")
-            time.sleep(5)
-
     def _discovery_worker(self, interval):
         while not self._stop_event.is_set():
             start_time = time.time()
@@ -455,35 +420,17 @@ class MeshMonitor:
             logger.info("Scanning contacts list...")
             contacts = self.device.get_contacts()
             if contacts:
-                for name in contacts:
-                    if not name or name.startswith("Error:"):
-                        continue
-
-                    logger.info(f"Checking node: '{name}'")
-                    # Use library for contact info
-                    node_info = self.device.get_contact_info(name)
-
-                    # Replicate fallback logic if first call fails
-                    if not node_info:
-                        fallback_name = f"{name} "
-                        logger.debug(
-                            f"Direct info fetch failed for '{name}', retrying with '{fallback_name}'"
-                        )
-                        node_info = self.device.get_contact_info(fallback_name)
-
-                    if node_info:
-                        try:
-                            if self.db.update_node(node_info):
-                                self.mqtt.publish_node(node_info)
-                                new_nodes_announced += 1
-                                logger.info(
-                                    f"New node discovered and announced: {node_info.get('adv_name', 'Unknown')} ({node_info.get('public_key', '')[:8]}...)"
-                                )
-                            nodes_processed += 1
-                        except Exception as e:
-                            logger.error(f"DB Error processing node '{name}': {e}")
-                    else:
-                        logger.warning(f"Failed to get valid data for node: '{name}'")
+                for idx,node_info in contacts.items():
+                    try:
+                        if self.db.update_node(node_info):
+                            self.mqtt.publish_node(node_info)
+                            new_nodes_announced += 1
+                            logger.info(
+                                f"New node discovered and announced: {node_info.get('adv_name', 'Unknown')} ({node_info.get('public_key', '')[:8]}...)"
+                            )
+                        nodes_processed += 1
+                    except Exception as e:
+                        logger.error(f"DB Error processing node '{name}': {e}")
             else:
                 logger.debug("No contacts found on device.")
 
