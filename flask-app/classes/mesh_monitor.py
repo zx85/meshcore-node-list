@@ -12,37 +12,7 @@ from typing import Dict, Set, Any
 from datetime import datetime, timedelta
 import traceback
 
-try:
-    # Attempt to find MeshApp in several known locations
-    MeshApp = None
-    import_errors = []
-
-    import_paths = [
-        "meshcore_cli.app",
-        "meshcore_cli.mesh_app",
-        "meshcore_cli.cli",
-        "meshcore.app",
-        "meshcore.mesh_app",
-    ]
-
-    for path in import_paths:
-        try:
-            module = __import__(path, fromlist=["MeshApp"])
-            MeshApp = getattr(module, "MeshApp")
-            break
-        except (ImportError, AttributeError) as e:
-            import_errors.append(f"{path}: {str(e)}")
-
-    if MeshApp is None:
-        raise ImportError(
-            f"Could not find MeshApp class. Errors: {'; '.join(import_errors)}"
-        )
-
-    HAS_MESH_LIB = True
-    LIB_ERROR = None
-except Exception as e:
-    HAS_MESH_LIB = False
-    LIB_ERROR = str(e)
+from meshcore_cli.meshcore_cli import MeshCore
 
 # Configure logging
 logging.basicConfig(
@@ -217,24 +187,19 @@ class MeshDevice:
         self._app = None
 
     def _get_app(self):
-        """Lazy initialization of the MeshApp library"""
-        if not HAS_MESH_LIB:
-            logger.error(
-                f"meshcore_cli library not found ({LIB_ERROR}). Cannot communicate with device."
-            )
-            return None
-
+        """Lazy initialization of the MeshCore library"""
         if self._app is None:
             try:
-                logger.info(f"Initializing MeshApp on {self.serial_device}...")
+                logger.info(f"Initializing MeshCore on {self.serial_device}...")
                 # Try initializing with common argument names
                 try:
-                    self._app = MeshApp(serial_port=self.serial_device)
+                    self._app = MeshCore(serial_port=self.serial_device)
                 except TypeError:
-                    self._app = MeshApp(port=self.serial_device)
+                    # Some versions use 'port' instead of 'serial_port'
+                    self._app = MeshCore(port=self.serial_device)
             except Exception as e:
                 logger.error(
-                    f"Failed to initialize MeshApp: {e}\n{traceback.format_exc()}"
+                    f"Failed to initialize MeshCore: {e}\n{traceback.format_exc()}"
                 )
         return self._app
 
