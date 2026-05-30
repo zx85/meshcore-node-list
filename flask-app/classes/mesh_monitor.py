@@ -10,13 +10,37 @@ import threading
 from pathlib import Path
 from typing import Dict, Set, Any
 from datetime import datetime, timedelta
+import traceback
 
 try:
-    from meshcore_cli.app import MeshApp
+    # Attempt to find MeshApp in several known locations
+    MeshApp = None
+    import_errors = []
+
+    import_paths = [
+        "meshcore_cli.app",
+        "meshcore_cli.mesh_app",
+        "meshcore_cli.cli",
+        "meshcore.app",
+        "meshcore.mesh_app",
+    ]
+
+    for path in import_paths:
+        try:
+            module = __import__(path, fromlist=["MeshApp"])
+            MeshApp = getattr(module, "MeshApp")
+            break
+        except (ImportError, AttributeError) as e:
+            import_errors.append(f"{path}: {str(e)}")
+
+    if MeshApp is None:
+        raise ImportError(
+            f"Could not find MeshApp class. Errors: {'; '.join(import_errors)}"
+        )
 
     HAS_MESH_LIB = True
     LIB_ERROR = None
-except ImportError as e:
+except Exception as e:
     HAS_MESH_LIB = False
     LIB_ERROR = str(e)
 
