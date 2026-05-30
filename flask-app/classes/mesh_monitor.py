@@ -153,6 +153,20 @@ class MeshDevice:
                 logger.error(f"MeshCLI error: {e}")
                 return None
 
+    def write_raw(self, data: bytes):
+        """Send raw bytes to the device, respecting the lock"""
+        if not os.path.exists(self.serial_device):
+            return False
+        with self.lock:
+            try:
+                with open(self.serial_device, "wb") as f:
+                    f.write(data)
+                    f.flush()
+                return True
+            except Exception as e:
+                logger.error(f"Serial write error: {e}")
+                return False
+
 
 class MqttHandler:
     def __init__(self, config):
@@ -215,9 +229,38 @@ class MeshMonitor:
         threading.Thread(
             target=self._discovery_worker, args=(interval,), daemon=True
         ).start()
+        # Reboot thread
+        threading.Thread(target=self._reboot_worker, daemon=True).start()
 
         while not self._stop_event.is_set():
             time.sleep(1)
+
+    def _reboot_worker(self):
+        """Replicates the 6-hour reboot cycle from reboot_node.sh"""
+        # 6 hours in seconds
+        reboot_interval = 6 * 60 * 60
+
+        # Wait at least 1 hour after app start before the first reboot
+        # to ensure we don't reboot-loop if the app restarts frequently
+        time.sleep(3600)
+
+        while not self._stop_event.is_set():
+            logger.info("Starting scheduled node reboot...")
+
+            # 1. Send reboot command (reboot\x0D)
+            if self.device.write_raw(b"reboot\x0d"):
+                logger.info("Reboot command sent. Waiting 30s for recovery...")
+                # 2. Wait for node to come back up
+                time.sleep(30)
+                # 3. Sync the clock
+                logger.info("Syncing node clock after reboot...")
+                self.device.run_meshcli(["clock", "sync"])
+
+            # Wait 6 hours for next cycle (responsive to stop event)
+            for _ in range(reboot_interval):
+                if self._stop_event.is_set():
+                    break
+                time.sleep(1)
 
     def _msg_worker(self):
         while not self._stop_event.is_set():
