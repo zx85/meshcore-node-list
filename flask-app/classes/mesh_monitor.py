@@ -214,7 +214,7 @@ class MeshDevice:
 
     async def _get_info_coro(self):
         await self._ensure_connected()
-        result = await self._meshcore.commands.get_device_info()
+        result = await self._meshcore.commands.send_device_query()
         if result.type != EventType.ERROR:
             return result.payload
         logger.error(f"get_info failed: {result.payload}")
@@ -275,28 +275,6 @@ class MeshDevice:
     def reboot(self):
         with self.lock:
             return self._run_async(self._reboot_coro())
-
-    def run_meshcli(self, args: list):
-        """Legacy support for direct shell commands if needed, though mostly deprecated now"""
-        if not os.path.exists(self.serial_device):
-            return None
-        with self.lock:
-            cmd = ["uv", "run", "meshcli", "-s", self.serial_device] + args
-            logger.debug(f"Running command: {' '.join(cmd)}")
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if result.returncode != 0:
-                    logger.debug(
-                        f"Command failed (RC {result.returncode}). STDERR: {result.stderr.strip()}"
-                    )
-                if result.stdout:
-                    logger.debug(
-                        f"Raw output (first 100 chars): {result.stdout.strip()[:100]}"
-                    )
-                return result
-            except Exception as e:
-                logger.error(f"MeshCLI execution error: {e}")
-                return None
 
 
 class MqttHandler:
@@ -373,7 +351,7 @@ class MeshMonitor:
             return
 
         logger.info("Starting background worker threads...")
-        threading.Thread(target=self._msg_worker, daemon=True).start()
+        # threading.Thread(target=self._msg_worker, daemon=True).start()
         threading.Thread(
             target=self._discovery_worker, args=(interval,), daemon=True
         ).start()
