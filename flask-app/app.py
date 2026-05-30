@@ -4,11 +4,8 @@ from zoneinfo import ZoneInfo
 import os
 import time
 import logging
-import json
-import re
 import threading
 import atexit
-from dotenv import load_dotenv
 
 from includes.feed import parse_feed
 from classes.mesh_monitor import MeshMonitor, DatabaseManager
