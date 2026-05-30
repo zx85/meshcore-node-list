@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, Set, Any
 from datetime import datetime, timedelta
 import traceback
-from meshcore.meshcore import MeshCore
+from meshcore_cli.meshcore_cli import MeshCore, get_contacts, send_cmd
 from meshcore.serial_cx import SerialConnection
 
 # Configure logging
@@ -194,7 +194,7 @@ class MeshDevice:
                     f"Initializing SerialConnection for {self.serial_device}..."
                 )
                 # First, create the connection object
-                connection = SerialConnection(port=self.serial_device, baudrate=115200)
+                connection = SerialConnection(self.serial_device, baudrate=115200)
                 # Then, pass the connection object to MeshCore
                 self._app = MeshCore(connection)
             except Exception as e:
@@ -206,62 +206,56 @@ class MeshDevice:
     def get_info(self):
         with self.lock:
             app = self._get_app()
-            if app:
-                try:
-                    return app.get_info()
-                except Exception as e:
-                    logger.error(f"Error in get_info: {e}")
+            if app and hasattr(app, "state"):
+                # Trigger a refresh of the local info
+                send_cmd(app, "infos")
+                # Return the local node dict from state
+                return getattr(app.state, "self_node", None)
             return None
 
     def get_contacts(self):
         with self.lock:
             app = self._get_app()
             if app:
-                try:
-                    return app.get_contacts()
-                except Exception as e:
-                    logger.error(f"Error in get_contacts: {e}")
+                return get_contacts(app)
             return []
 
     def get_contact_info(self, name: str):
         with self.lock:
             app = self._get_app()
-            if app:
-                try:
-                    return app.get_contact_info(name)
-                except Exception as e:
-                    logger.error(f"Error in get_contact_info for '{name}': {e}")
+            if app and hasattr(app, "state"):
+                # Contacts are stored in a dictionary in the state
+                contacts = getattr(app.state, "contacts", {})
+                return contacts.get(name)
             return None
 
     def sync_msgs(self):
         with self.lock:
             app = self._get_app()
             if app:
-                try:
-                    return app.sync_messages()
-                except Exception as e:
-                    logger.error(f"Error in sync_msgs: {e}")
+                # Trigger the sync command
+                send_cmd(app, "sync_msgs")
+                # Retrieve messages accumulated in the core instance
+                msgs = getattr(app, "messages", [])
+                if msgs:
+                    # Clear the internal list after "syncing"
+                    app.messages = []
+                return msgs
             return []
 
     def sync_clock(self):
         with self.lock:
             app = self._get_app()
             if app:
-                try:
-                    return app.sync_clock()
-                except Exception as e:
-                    logger.error(f"Error in sync_clock: {e}")
-            return False
+                return send_cmd(app, "clock sync")
+            return None
 
     def reboot(self):
         with self.lock:
             app = self._get_app()
             if app:
-                try:
-                    return app.reboot()
-                except Exception as e:
-                    logger.error(f"Error in reboot: {e}")
-            return False
+                return send_cmd(app, "reboot")
+            return None
 
     def run_meshcli(self, args: list):
         """Legacy support for direct shell commands if needed, though mostly deprecated now"""
