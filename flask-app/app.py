@@ -10,11 +10,12 @@ import threading
 import atexit
 from dotenv import load_dotenv
 
+from includes.feed import parse_feed
+from classes.mesh_monitor import MeshMonitor, DatabaseManager
+
 # Load environment variables from .env file
 load_dotenv()
 
-from includes.feed import parse_feed
-from classes.mesh_monitor import MeshMonitor
 
 # Configure application
 app = Flask(__name__, static_folder="static")
@@ -35,7 +36,7 @@ last_modified = ""
 CACHE_TIMEOUT = 60  # seconds
 
 # Get the environment variables from .env file
-node_data_file = os.environ.get("NODE_DATA_FILE", "/app/node_data/nodes.json")
+node_data_file = os.environ.get("NODE_DATA_FILE", "/app/node_data/nodes.db")
 message_data_file = os.environ.get(
     "MESSAGE_DATA_FILE", "/app/node_data/node_messages.txt"
 )
@@ -55,6 +56,8 @@ with open("version.txt") as vf:
     APP_VERSION = vf.read().strip()
     vf.close()
 
+db_manager = DatabaseManager(node_data_file)
+
 
 def load_entries():
     global entries_cache, last_loaded, last_modified
@@ -62,29 +65,16 @@ def load_entries():
 
     # If cache expired or never loaded, reload file
     if entries_cache is None or now - last_loaded > CACHE_TIMEOUT:
-        file_timestamp = os.path.getmtime(node_data_file)
-        # convert to datetime
-        dt = datetime.fromtimestamp(file_timestamp, tz=ZoneInfo("Europe/London"))
-        # format as string
-        last_modified = f'{dt.strftime("%Y-%m-%d %H:%M:%S")} UK time'
-
-        with open(node_data_file, "r") as f:
-            entries_cache = json.load(f)
+        entries_cache = db_manager.get_all_nodes()
+        last_modified = f'{datetime.now(tz=ZoneInfo("Europe/London")).strftime("%Y-%m-%d %H:%M:%S")} UK time'
         last_loaded = now
-        print("File reloaded at", time.strftime("%X"))  # For debugging
 
     return entries_cache
 
 
 def get_current_nodes():
     """Get current nodes from the node data file"""
-    try:
-        if os.path.exists(node_data_file):
-            with open(node_data_file, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Error reading node data file: {e}")
-    return []
+    return db_manager.get_all_nodes()
 
 
 def start_background_monitor():

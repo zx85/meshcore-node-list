@@ -44,12 +44,19 @@ def parse_feed(feed: str, hours: int):
         ["Name", "Role", "Location", "Distance", "Hops", f"Last heard (<{hours}hrs)"]
     )
     for idx, line in enumerate(feed):
-        if idx == 0:  # home node
+        if line.get("is_home"):  # home node
             home = [line.get("adv_lat"), line.get("adv_lon"), 0]
             rows.append(
-                [line.get("name"), "CHAT", google_maps_ref(home), "N/A", "0", "N/A", 0]
+                [
+                    line.get("name") or line.get("adv_name"),
+                    "CHAT",
+                    google_maps_ref(home),
+                    "N/A",
+                    "0",
+                    "N/A",
+                    0,
+                ]
             )
-            print(rows)
         else:
             last_advert_epoch = line.get("last_advert")
             if not last_advert_epoch:
@@ -75,10 +82,5 @@ def parse_feed(feed: str, hours: int):
 
     headers = rows[0]
     data = rows[1:]
-
-    # Sort by 'Last Heard' (index 5) in reverse order, except for the home node (index 0)
-    if len(data) > 1:
-        # Keep home node at top, sort the rest
-        data = [data[0]] + sorted(data[1:], key=lambda x: x[5], reverse=True)
 
     return headers, data
