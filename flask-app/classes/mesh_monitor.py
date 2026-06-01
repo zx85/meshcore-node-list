@@ -234,10 +234,25 @@ class MeshDevice:
 
     async def _get_info_coro(self):
         await self._ensure_connected()
-        result = await self._meshcore.commands.send_device_query()
-        if result.type != EventType.ERROR:
-            return result.payload
-        logger.error(f"get_info failed: {result.payload}")
+        try:
+            result = await self._meshcore.commands.send_device_query()
+            if result.type != EventType.ERROR:
+                return result.payload
+
+            # If we get a timeout, the serial connection might be stale
+            if (
+                isinstance(result.payload, dict)
+                and result.payload.get("reason") == "no_event_received"
+            ):
+                logger.error(
+                    "Serial timeout (no_event_received) in get_info. Resetting connection..."
+                )
+                await self._disconnect_coro()
+
+            logger.error(f"get_info failed: {result.payload}")
+        except Exception as e:
+            logger.error(f"Exception in _get_info_coro: {e}")
+            await self._disconnect_coro()
         return None
 
     def get_info(self):
@@ -246,10 +261,24 @@ class MeshDevice:
 
     async def _get_contacts_coro(self):
         await self._ensure_connected()
-        result = await self._meshcore.commands.get_contacts()
-        if result.type != EventType.ERROR:
-            return result.payload  # Usually a list of contact names/identifiers
-        logger.error(f"get_contacts failed: {result.payload}")
+        try:
+            result = await self._meshcore.commands.get_contacts()
+            if result.type != EventType.ERROR:
+                return result.payload
+
+            if (
+                isinstance(result.payload, dict)
+                and result.payload.get("reason") == "no_event_received"
+            ):
+                logger.error(
+                    "Serial timeout (no_event_received) in get_contacts. Resetting connection..."
+                )
+                await self._disconnect_coro()
+
+            logger.error(f"get_contacts failed: {result.payload}")
+        except Exception as e:
+            logger.error(f"Exception in _get_contacts_coro: {e}")
+            await self._disconnect_coro()
         return []
 
     def get_contacts(self):
@@ -259,6 +288,20 @@ class MeshDevice:
     def subscribe(self, event_type, callback):
         with self.lock:
             return self._run_async(self._subscribe_coro(event_type, callback))
+
+    def disconnect(self):
+        """Public sync method to disconnect the device."""
+        with self.lock:
+            return self._run_async(self._disconnect_coro())
+
+    async def _disconnect_coro(self):
+        if self._meshcore:
+            logger.info("Disconnecting MeshCore serial device...")
+            try:
+                await self._meshcore.disconnect()
+            except Exception:
+                pass
+            self._meshcore = None
 
     async def _sync_clock_coro(self):
         await self._ensure_connected()
@@ -627,5 +670,6 @@ class MeshMonitor:
 
     def cleanup(self):
         self._stop_event.set()
+        self.device.disconnect()
         self.mqtt.client.loop_stop()
         self.mqtt.client.disconnect()
