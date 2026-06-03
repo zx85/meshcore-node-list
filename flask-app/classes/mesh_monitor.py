@@ -199,6 +199,9 @@ class MeshDevice:
         self.serial_device = serial_device
         self.lock = threading.Lock()
         self._meshcore = None
+        self._subscriptions = (
+            []
+        )  # Track event subscriptions for persistence across reconnections
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(target=self._run_event_loop, daemon=True)
         self._loop_thread.start()
@@ -227,6 +230,11 @@ class MeshDevice:
                 # Enable auto-fetching of messages as requested
                 logger.info("Enabling auto message fetching...")
                 await self._meshcore.start_auto_message_fetching()
+
+                # Re-apply all registered event subscriptions to the new connection
+                for event_type, callback in self._subscriptions:
+                    logger.info(f"Re-applying persistent subscription for {event_type}")
+                    self._meshcore.subscribe(event_type, callback)
             except Exception as e:
                 logger.error(f"Failed to create serial connection: {e}")
                 raise
@@ -304,7 +312,17 @@ class MeshDevice:
 
     async def _sync_clock_coro(self):
         await self._ensure_connected()
-        result = await self._meshcore.commands.sync_clock()
+        try:
+            result = await self._meshcore.commands.sync_clock()
+            if (
+                result.type == EventType.ERROR
+                and isinstance(result.payload, dict)
+                and result.payload.get("reason") == "no_event_received"
+            ):
+                await self._disconnect_coro()
+        except Exception:
+            await self._disconnect_coro()
+            return False
         return result.type != EventType.ERROR
 
     def sync_clock(self):
@@ -313,7 +331,17 @@ class MeshDevice:
 
     async def _reboot_coro(self):
         await self._ensure_connected()
-        result = await self._meshcore.commands.reboot()
+        try:
+            result = await self._meshcore.commands.reboot()
+            if (
+                result.type == EventType.ERROR
+                and isinstance(result.payload, dict)
+                and result.payload.get("reason") == "no_event_received"
+            ):
+                await self._disconnect_coro()
+        except Exception:
+            await self._disconnect_coro()
+            return False
         return result.type != EventType.ERROR
 
     def reboot(self):
@@ -321,8 +349,20 @@ class MeshDevice:
             return self._run_async(self._reboot_coro())
 
     async def _subscribe_coro(self, event_type, callback):
+        if (event_type, callback) in self._subscriptions:
+            return True
+
+        # Store the subscription so it survives future connection resets
+        self._subscriptions.append((event_type, callback))
+
+        was_connected = self._meshcore is not None
         await self._ensure_connected()
-        return self._meshcore.subscribe(event_type, callback)
+
+        # If we were already connected, _ensure_connected did nothing, so apply now.
+        # Otherwise, _ensure_connected already re-applied the list.
+        if was_connected:
+            return self._meshcore.subscribe(event_type, callback)
+        return True
 
 
 class MqttHandler:
@@ -426,9 +466,6 @@ class MeshMonitor:
 
         if self.serial_enabled:
             self._setup_event_listeners()
-
-        async def on_waiting(event):
-            logger.info("Node reports messages are waiting in buffer...")
 
     def _setup_event_listeners(self):
         """Register real-time listeners for mesh events"""
