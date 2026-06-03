@@ -589,7 +589,7 @@ class MeshMonitor:
 
             while not self._stop_event.is_set():
                 now = datetime.now()
-                scheduled_hours = [4, 10, 16, 22]
+                scheduled_hours = [8, 20]
                 target_time = None
 
                 # Find the next scheduled reboot time for today
