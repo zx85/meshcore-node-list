@@ -95,6 +95,7 @@ class DatabaseManager:
                     adv_lon REAL,
                     out_path_len INTEGER,
                     last_advert INTEGER,
+                    active INTEGER DEFAULT 1,
                     is_home INTEGER DEFAULT 0,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -110,6 +111,11 @@ class DatabaseManager:
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Ensure 'active' column exists for existing databases
+            try:
+                conn.execute("ALTER TABLE nodes ADD COLUMN active INTEGER DEFAULT 1")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
     def update_node(self, node_data: Dict, is_home: bool = False):
         with sqlite3.connect(self.db_path) as conn:
@@ -123,9 +129,9 @@ class DatabaseManager:
             # Use ON CONFLICT to ensure we don't overwrite the 'is_home' flag once set
             query = """
                 INSERT INTO nodes 
-                    (public_key, name, adv_name, type, adv_lat, adv_lon, out_path_len, last_advert, is_home, last_updated)
+                    (public_key, name, adv_name, type, adv_lat, adv_lon, out_path_len, last_advert, is_home, active, last_updated)
                 VALUES 
-                    (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
                 ON CONFLICT(public_key) DO UPDATE SET
                     name=excluded.name,
                     adv_name=excluded.adv_name,
@@ -135,6 +141,7 @@ class DatabaseManager:
                     out_path_len=excluded.out_path_len,
                     last_advert=excluded.last_advert,
                     is_home=MAX(nodes.is_home, excluded.is_home),
+                    active=1,
                     last_updated=CURRENT_TIMESTAMP
             """
             conn.execute(
@@ -166,12 +173,19 @@ class DatabaseManager:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def mark_node_inactive(self, public_key: str):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE nodes SET active = 0, last_updated = CURRENT_TIMESTAMP WHERE public_key = ?",
+                (public_key,),
+            )
+
     def get_all_nodes(self):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             # Home node first, then sort by last_advert (the 'last heard' fix)
             rows = conn.execute(
-                "SELECT * FROM nodes ORDER BY is_home DESC, last_advert DESC"
+                "SELECT * FROM nodes WHERE active = 1 ORDER BY is_home DESC, last_advert DESC"
             ).fetchall()
             return [dict(row) for row in rows]
 
@@ -291,6 +305,21 @@ class MeshDevice:
     def get_contacts(self):
         with self.lock:
             return self._run_async(self._get_contacts_coro())
+
+    async def _delete_contact_coro(self, public_key):
+        await self._ensure_connected()
+        try:
+            # Attempt to delete the contact from hardware memory
+            result = await self._meshcore.commands.delete_contact(public_key)
+            return result.type != EventType.ERROR
+        except Exception as e:
+            logger.error(f"Failed to delete contact {public_key} from device: {e}")
+            return False
+
+    def delete_contact(self, public_key):
+        """Deletes a contact from the mesh device hardware."""
+        with self.lock:
+            return self._run_async(self._delete_contact_coro(public_key))
 
     def subscribe(self, event_type, callback):
         with self.lock:
@@ -676,6 +705,32 @@ class MeshMonitor:
                         logger.error(f"DB Error processing node '{node_info}': {e}")
             else:
                 logger.debug("No contacts found on device.")
+
+            # --- Stale Node Cleanup Logic ---
+            try:
+                now_ts = time.time()
+                stale_threshold = 180 * 24 * 60 * 60  # 180 days in seconds
+                epoch_2000 = 946684800  # Jan 1, 2000
+
+                # Check current active nodes for staleness
+                active_nodes = self.db.get_all_nodes()
+                for node in active_nodes:
+                    # Never purge the home node
+                    if node.get("is_home"):
+                        continue
+
+                    last_adv = node.get("last_advert")
+                    pk = node.get("public_key")
+
+                    if pk and last_adv and last_adv > epoch_2000:
+                        if (now_ts - last_adv) > stale_threshold:
+                            logger.info(
+                                f"Purging stale node: {node.get('adv_name') or pk} (Last heard: {datetime.fromtimestamp(last_adv)})"
+                            )
+                            if self.device.delete_contact(pk):
+                                self.db.mark_node_inactive(pk)
+            except Exception as e:
+                logger.error(f"Error during stale node cleanup: {e}")
 
             self.mqtt.send_status("updated")
             end_time = time.time()
