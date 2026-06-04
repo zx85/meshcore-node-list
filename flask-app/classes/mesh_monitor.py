@@ -306,20 +306,20 @@ class MeshDevice:
         with self.lock:
             return self._run_async(self._get_contacts_coro())
 
-    async def _delete_contact_coro(self, public_key):
+    async def _remove_contact_coro(self, public_key):
         await self._ensure_connected()
         try:
             # Attempt to delete the contact from hardware memory
-            result = await self._meshcore.commands.delete_contact(public_key)
+            result = await self._meshcore.commands.remove_contact(public_key)
             return result.type != EventType.ERROR
         except Exception as e:
             logger.error(f"Failed to delete contact {public_key} from device: {e}")
             return False
 
-    def delete_contact(self, public_key):
+    def remove_contact(self, public_key):
         """Deletes a contact from the mesh device hardware."""
         with self.lock:
-            return self._run_async(self._delete_contact_coro(public_key))
+            return self._run_async(self._remove_contact_coro(public_key))
 
     def subscribe(self, event_type, callback):
         with self.lock:
@@ -727,7 +727,7 @@ class MeshMonitor:
                             logger.info(
                                 f"Purging stale node: {node.get('adv_name') or pk} (Last heard: {datetime.fromtimestamp(last_adv)})"
                             )
-                            if self.device.delete_contact(pk):
+                            if self.device.remove_contact(pk):
                                 self.db.mark_node_inactive(pk)
             except Exception as e:
                 logger.error(f"Error during stale node cleanup: {e}")
