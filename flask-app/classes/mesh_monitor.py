@@ -265,15 +265,11 @@ class MeshDevice:
                 isinstance(result.payload, dict)
                 and result.payload.get("reason") == "no_event_received"
             ):
-                logger.error(
-                    "Serial timeout (no_event_received) in get_info. Resetting connection..."
-                )
-                await self._disconnect_coro()
+                logger.error("Serial timeout (no_event_received) in get_info.")
 
             logger.error(f"get_info failed: {result.payload}")
         except Exception as e:
             logger.error(f"Exception in _get_info_coro: {e}")
-            await self._disconnect_coro()
         return None
 
     def get_info(self):
@@ -291,15 +287,11 @@ class MeshDevice:
                 isinstance(result.payload, dict)
                 and result.payload.get("reason") == "no_event_received"
             ):
-                logger.error(
-                    "Serial timeout (no_event_received) in get_contacts. Resetting connection..."
-                )
-                await self._disconnect_coro()
+                logger.error("Serial timeout (no_event_received) in get_contacts.")
 
             logger.error(f"get_contacts failed: {result.payload}")
         except Exception as e:
             logger.error(f"Exception in _get_contacts_coro: {e}")
-            await self._disconnect_coro()
         return []
 
     def get_contacts(self):
@@ -348,9 +340,9 @@ class MeshDevice:
                 and isinstance(result.payload, dict)
                 and result.payload.get("reason") == "no_event_received"
             ):
-                await self._disconnect_coro()
-        except Exception:
-            await self._disconnect_coro()
+                logger.warning("Clock sync timed out (no_event_received).")
+        except Exception as e:
+            logger.error(f"Exception in _sync_clock_coro: {e}")
             return False
         return result.type != EventType.ERROR
 
