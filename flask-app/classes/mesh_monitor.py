@@ -334,7 +334,7 @@ class MeshDevice:
     async def _sync_clock_coro(self):
         await self._ensure_connected()
         try:
-            result = await self._meshcore.commands.sync_clock()
+            result = await self._meshcore.commands.set_time(int(time.time()))
             if (
                 result.type == EventType.ERROR
                 and isinstance(result.payload, dict)
