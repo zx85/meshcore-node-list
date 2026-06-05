@@ -362,16 +362,17 @@ class MeshDevice:
         await self._ensure_connected()
         try:
             result = await self._meshcore.commands.reboot()
-            if (
-                result.type == EventType.ERROR
-                and isinstance(result.payload, dict)
-                and result.payload.get("reason") == "no_event_received"
-            ):
-                await self._disconnect_coro()
-        except Exception:
+            # Always disconnect after a reboot command regardless of result
+            # because the hardware is about to vanish from the bus.
+            logger.info("Reboot command sent; proactively disconnecting port.")
+            await self._disconnect_coro()
+            return result.type != EventType.ERROR
+        except Exception as e:
+            logger.debug(
+                f"Exception during reboot command (expected if device reset fast): {e}"
+            )
             await self._disconnect_coro()
             return False
-        return result.type != EventType.ERROR
 
     def reboot(self):
         with self.lock:
@@ -492,6 +493,8 @@ class MeshMonitor:
         serial_env = os.environ.get("MESH_SERIAL_ENABLED", "true").strip('"').lower()
         self.serial_enabled = serial_env == "true"
         self._stop_event = threading.Event()
+        self._rebooting = False
+        self._last_clock_sync = 0
 
         if self.serial_enabled:
             self._setup_event_listeners()
@@ -654,102 +657,117 @@ class MeshMonitor:
 
                 logger.info("Starting scheduled node reboot...")
 
-                # Use the library reboot method
+                # 1. Send reboot command (internal logic now proactive disconnects)
                 if self.device.reboot():
-                    logger.info("Reboot command sent. Waiting 30s for recovery...")
-                    # 2. Wait for node to come back up
-                    time.sleep(30)
-                    # 3. Sync the clock
-                    logger.info("Syncing node clock after reboot...")
-                    self.device.sync_clock()
-                    logger.info("Node clock synced. Reboot cycle complete.")
+                    self._rebooting = True
+                    logger.info(
+                        "Reboot command acknowledged. Locking serial port for 60s..."
+                    )
+
+                    # Wait for the device to fully disappear and reappear
+                    time.sleep(60)
+
+                    self._rebooting = False
+                    logger.info("Reboot window closed. Resuming normal operations.")
+                else:
+                    logger.error("Failed to send reboot command to device.")
+                    # Ensure we are disconnected even on failure
+                    self.device.disconnect()
+
         except Exception as e:
             logger.error(f"Reboot worker crashed: {e}")
 
     def _discovery_worker(self, interval):
         while not self._stop_event.is_set():
-            start_time = time.time()
-            nodes_processed = 0
-            new_nodes_announced = 0
+            try:
+                # Confirm no reboot is in progress before attempting communication
+                if self._rebooting:
+                    logger.debug("Discovery cycle skipped: Reboot in progress.")
+                    time.sleep(10)
+                    continue
 
-            logger.info("Starting node discovery cycle...")
-            self.mqtt.send_status("updating_nodes")
+                start_time = time.time()
+                nodes_processed = 0
+                new_nodes_announced = 0
 
-            logger.debug("Fetching local node info...")
-            node_data = self.device.get_info()
-            if node_data:
-                try:
-                    if self.db.update_node(node_data, is_home=True):
-                        logger.info(
-                            f"Updated home node: {node_data.get('name') or node_data.get('adv_name')}"
-                        )
-                    nodes_processed += 1
-                except Exception as e:
-                    logger.error(f"Error updating home node in DB: {e}")
-            else:
-                logger.warning("Failed to retrieve local node info via library.")
+                logger.info("Starting node discovery cycle...")
+                self.mqtt.send_status("updating_nodes")
 
-            logger.info("Scanning contacts list...")
-            contacts = self.device.get_contacts()
-            if contacts:
-                for idx, node_info in contacts.items():
+                logger.debug("Fetching local node info...")
+                node_data = self.device.get_info()
+                if node_data:
                     try:
-                        if self.db.update_node(node_info):
-                            self.mqtt.publish_node(node_info)
-                            new_nodes_announced += 1
+                        if self.db.update_node(node_data, is_home=True):
                             logger.info(
-                                f"New node discovered and announced: {node_info.get('adv_name', 'Unknown')} ({node_info.get('public_key', '')[:8]}...)"
+                                f"Updated home node: {node_data.get('name') or node_data.get('adv_name')}"
                             )
                         nodes_processed += 1
                     except Exception as e:
-                        logger.error(f"DB Error processing node '{node_info}': {e}")
-            else:
-                logger.debug("No contacts found on device.")
+                        logger.error(f"Error updating home node in DB: {e}")
+                else:
+                    logger.warning("Failed to retrieve local node info via library.")
 
-            # --- Stale Node Cleanup Logic ---
-            try:
-                now_ts = time.time()
-                stale_threshold = 180 * 24 * 60 * 60  # 180 days in seconds
-                epoch_2000 = 946684800  # Jan 1, 2000
+                logger.info("Scanning contacts list...")
+                contacts = self.device.get_contacts()
+                if contacts:
+                    for idx, node_info in contacts.items():
+                        try:
+                            if self.db.update_node(node_info):
+                                self.mqtt.publish_node(node_info)
+                                new_nodes_announced += 1
+                                logger.info(
+                                    f"New node discovered and announced: {node_info.get('adv_name', 'Unknown')} ({node_info.get('public_key', '')[:8]}...)"
+                                )
+                            nodes_processed += 1
+                        except Exception as e:
+                            logger.error(f"DB Error processing node '{node_info}': {e}")
+                else:
+                    logger.debug("No contacts found on device.")
 
-                # Check current active nodes for staleness
-                active_nodes = self.db.get_all_nodes()
-                for node in active_nodes:
-                    # Never purge the home node
-                    if node.get("is_home"):
-                        continue
+                # --- Stale Node Cleanup Logic ---
+                try:
+                    now_ts = time.time()
+                    stale_threshold = 180 * 24 * 60 * 60  # 180 days in seconds
+                    epoch_2000 = 946684800  # Jan 1, 2000
 
-                    last_adv = node.get("last_advert")
-                    pk = node.get("public_key")
+                    active_nodes = self.db.get_all_nodes()
+                    for node in active_nodes:
+                        if node.get("is_home"):
+                            continue
+                        last_adv = node.get("last_advert")
+                        pk = node.get("public_key")
+                        if pk and last_adv and last_adv > epoch_2000:
+                            if (now_ts - last_adv) > stale_threshold:
+                                logger.info(
+                                    f"Purging stale node: {node.get('adv_name') or pk}"
+                                )
+                                if self.device.remove_contact(pk):
+                                    self.db.mark_node_inactive(pk)
+                except Exception as e:
+                    logger.error(f"Error during stale node cleanup: {e}")
 
-                    if pk and last_adv and last_adv > epoch_2000:
-                        if (now_ts - last_adv) > stale_threshold:
-                            logger.info(
-                                f"Purging stale node: {node.get('adv_name') or pk} (Last heard: {datetime.fromtimestamp(last_adv)})"
-                            )
-                            if self.device.remove_contact(pk):
-                                self.db.mark_node_inactive(pk)
+                # --- Periodic Clock Sync ---
+                # Only sync if it's been more than 4 hours since the last one
+                if time.time() - self._last_clock_sync > 14400:
+                    logger.info("Performing periodic node clock sync...")
+                    if self.device.sync_clock():
+                        self._last_clock_sync = time.time()
+                        logger.info("Clock sync successful.")
+
+                self.mqtt.send_status("updated")
+                end_time = time.time()
+                duration = end_time - start_time
+                logger.info(f"Node discovery cycle completed in {duration:.2f}s.")
+
+                # Ensure we sleep for at least the interval
+                sleep_duration = max(120, interval) - duration
+                if sleep_duration > 0:
+                    time.sleep(sleep_duration)
             except Exception as e:
-                logger.error(f"Error during stale node cleanup: {e}")
-
-            self.mqtt.send_status("updated")
-            end_time = time.time()
-            duration = end_time - start_time
-            logger.info(
-                f"Node discovery cycle completed. Processed {nodes_processed} nodes, announced {new_nodes_announced} new nodes in {duration:.2f} seconds."
-            )
-
-            # Ensure we sleep for at least the interval, accounting for execution time
-            sleep_duration = max(120, interval) - duration
-            if sleep_duration > 0:
-                logger.debug(
-                    f"Discovery worker sleeping for {sleep_duration:.2f} seconds."
-                )
-                time.sleep(sleep_duration)
-            else:
-                logger.warning(
-                    f"Node discovery took longer than the interval ({duration:.2f}s vs {interval}s). Skipping sleep."
-                )
+                # This is the critical fix: prevent Thread-3 from dying.
+                # If the device is missing (OSError 6), we wait 30s and try again.
+                logger.error(f"Discovery worker iteration failed: {e}")
+                time.sleep(30)
 
     def get_connection_stats(self):
         return {
